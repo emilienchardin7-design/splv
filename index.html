@@ -455,6 +455,23 @@
 #gmnf-firebase-dialog button{padding:10px 15px;background:#22673e;color:white;border:0;border-radius:7px;cursor:pointer}
 </style>
 <script>
+/* Nettoyage unique des anciennes données locales fictives GMNF SPLV.
+   Ne modifie ni les sessions Cloudflare, ni l'authentification Firebase. */
+(function(){
+  const marker='gmnfSplv:localReset:2026-11-06';
+  try {
+    if (localStorage.getItem(marker)==='done') return;
+    const obsolete=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key && key.startsWith('gmnfPilot:')) obsolete.push(key);
+    }
+    obsolete.forEach(key=>localStorage.removeItem(key));
+    localStorage.setItem(marker,'done');
+  } catch(error) { console.warn('Nettoyage local GMNF SPLV impossible :',error); }
+})();
+</script>
+<script>
 /* Synchronisation Firestore indépendante de la connexion Cloudflare. */
 (function(){
 'use strict';
@@ -1092,9 +1109,6 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
     <div class="gmnf-teacher-wide gmnf-subject-picker"><div class="gmnf-subject-heading"><strong>Matières enseignées</strong><span class="gmnf-subject-count" aria-live="polite">0 sélectionnée</span></div><input type="search" class="gmnf-subject-search" placeholder="Rechercher une matière ou une filière…" aria-label="Rechercher une matière"><div class="gmnf-subject-toolbar"><button type="button" class="gmnf-subject-select-visible">Sélectionner les résultats</button><button type="button" class="gmnf-subject-clear">Tout désélectionner</button></div><div class="gmnf-teacher-subjects" role="group" aria-label="Liste des matières"></div><div class="gmnf-subject-selected" aria-live="polite"></div><p class="muted" style="font-size:12px;margin-top:6px">Matières issues des filières configurées dans Réglages. Plusieurs matières peuvent être choisies.</p></div>
     <label>Numéro de téléphone<input name="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="Ex. 06 12 34 56 78"></label>
     <label>Adresse mail<input name="email" type="email" maxlength="200" autocomplete="email" placeholder="Ex. professeur@exemple.fr"></label>
-    <label>Identifiant<input name="username" readonly autocomplete="off" placeholder="PRENOM.NOM"></label>
-    <label>Mot de passe<input name="password" type="text" minlength="8" required autocomplete="off" spellcheck="false" placeholder="8 caractères minimum"></label>
-    <div class="gmnf-teacher-wide"><small class="muted">Identifiant automatique · mot de passe généré à la création, puis modifiable (8 caractères minimum, avec lettres et chiffres). Ces informations sont enregistrées localement : elles ne constituent pas encore une authentification sécurisée.</small></div>
    </div><p class="gmnf-teacher-error" role="alert" hidden></p><div class="gmnf-teacher-actions"><button type="button" class="gmnf-teacher-cancel">Annuler</button><button type="submit" class="gmnf-teacher-submit">${editing?'Enregistrer les modifications':'Créer le professeur'}</button></div></form>
   </section>`;
   const form=overlay.querySelector('form');

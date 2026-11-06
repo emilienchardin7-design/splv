@@ -893,12 +893,11 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
   panel.querySelectorAll('[data-mailtab]').forEach(b=>{const active=b.dataset.mailtab===section;b.classList.toggle('selected',active);b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;});
   const host=panel.querySelector('[data-mailcontent]');host.replaceChildren();
   if(section==='compose'){
-   host.innerHTML='<div class="gmnf-mail-compose"><label>Rechercher un destinataire<input data-recipient-search placeholder="Prénom, nom ou prénom et nom" autocomplete="off"></label><div data-recipient-results class="gmnf-mail-results"></div><div data-selected-recipient class="gmnf-mail-selected">Aucun destinataire sélectionné</div><label>Objet<input data-subject maxlength="140"></label><label>Message<textarea data-message rows="7"></textarea></label><div class="gmnf-mail-actions"><button data-internal-send>Enregistrer et envoyer en messagerie interne</button><button data-external-send type="button">✉ Ouvrir dans mon logiciel e-mail</button></div><p class="muted">Le bouton e-mail prépare un message vers l’adresse du destinataire ; l’envoi effectif nécessite votre confirmation dans votre logiciel.</p></div>';
+   host.innerHTML='<div class="gmnf-mail-compose"><label>Rechercher un destinataire<input data-recipient-search placeholder="Prénom, nom ou prénom et nom" autocomplete="off"></label><div data-recipient-results class="gmnf-mail-results"></div><div data-selected-recipient class="gmnf-mail-selected">Aucun destinataire sélectionné</div><label>Objet<input data-subject maxlength="140"></label><label>Message<textarea data-message rows="7"></textarea></label><div class="gmnf-mail-actions"><button data-internal-send>Enregistrer et envoyer en messagerie interne</button></div></div>';
    const search=host.querySelector('[data-recipient-search]'),results=host.querySelector('[data-recipient-results]');
    const suggest=()=>{results.replaceChildren();const q=normal(search.value).trim();if(!q){return}others.filter(t=>normal(name(t)).includes(q)||normal([t.lastName,t.firstName].join(' ')).includes(q)).slice(0,12).forEach(t=>{const b=document.createElement('button');b.type='button';b.className='gmnf-mail-recipient';b.textContent=name(t)+(t.email?' · '+t.email:'');b.onclick=()=>{selected=t;search.value=name(t);host.querySelector('[data-selected-recipient]').textContent='Destinataire : '+name(t);results.replaceChildren()};results.append(b)})};search.oninput=()=>{selected=null;host.querySelector('[data-selected-recipient]').textContent='Aucun destinataire sélectionné';suggest()};
    const fields=()=>({subject:host.querySelector('[data-subject]').value.trim(),message:host.querySelector('[data-message]').value.trim()});
    host.querySelector('[data-internal-send]').onclick=()=>{const {subject,message}=fields();if(!teacher||!selected||!message){alert('Sélectionnez un destinataire et rédigez un message.');return}const messages=load();messages.push({id:'msg-'+Date.now(),from:teacher.id,to:selected.id,subject,message,date:new Date().toLocaleString('fr-FR'),senderTrashed:false,recipientTrashed:false,senderDeleted:false,recipientDeleted:false});localStorage.setItem(key,JSON.stringify(messages));section='sent';draw()};
-   host.querySelector('[data-external-send]').onclick=()=>{const {subject,message}=fields();if(!selected?.email){alert('Le destinataire doit posséder une adresse e-mail renseignée.');return}window.location.href='mailto:'+encodeURIComponent(selected.email)+'?subject='+encodeURIComponent(subject||'GMNF SPLV')+'&body='+encodeURIComponent(message)};
   }else{
    host.innerHTML='<div class="gmnf-mail-layout"><div class="gmnf-mail-main"><label class="gmnf-mail-search">Rechercher dans les messages<input data-search placeholder="Objet, message, nom, date…"></label><div data-mail-list></div></div><aside class="gmnf-mail-folders" data-mail-folders aria-label="Dossiers de classement"></aside></div>';
    const search=host.querySelector('[data-search]'),list=host.querySelector('[data-mail-list]'),sidebar=host.querySelector('[data-mail-folders]');
@@ -3764,9 +3763,11 @@ setTimeout(promptArchiveDueYears,200);</script><script>
  const bar=document.createElement('div');bar.id='gmnf-pdf-email-bar';
  bar.style.cssText='position:fixed;right:18px;bottom:18px;z-index:99999;background:#fff;border:2px solid #23613d;border-radius:12px;padding:12px;box-shadow:0 4px 20px #0003;max-width:min(360px,90vw);display:none;font:14px Arial,sans-serif';
  const label=document.createElement('div');label.style.cssText='margin-bottom:8px;overflow-wrap:anywhere';
- const send=document.createElement('button');send.type='button';send.textContent='✉ Recevoir ce PDF par e-mail';send.style.cssText='background:#24663e;color:white;border:0;padding:9px;border-radius:7px;cursor:pointer';
+ const send=document.createElement('button');send.type='button';send.textContent='Envoie par mail';send.style.cssText='background:#24663e;color:white;border:0;padding:9px;border-radius:7px;cursor:pointer';
+ const download=document.createElement('button');download.type='button';download.textContent='Télécharger le PDF';download.style.cssText='background:#edf5ef;color:#205436;border:1px solid #92b59d;padding:9px;border-radius:7px;cursor:pointer;margin-left:8px';
+ download.onclick=()=>{if(!last)return;const url=URL.createObjectURL(last.blob);const a=document.createElement('a');a.href=url;a.download=last.name;a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)};
  const close=document.createElement('button');close.type='button';close.textContent='✕';close.title='Masquer';close.style.cssText='margin-left:8px;border:0;background:transparent;cursor:pointer';close.onclick=()=>bar.style.display='none';
- bar.append(label,send,close);
+ bar.append(label,send,download,close);
  const attach=()=>{if(!bar.isConnected)document.body.appendChild(bar)};
  function capture(blob,name){if(!(blob instanceof Blob))return;last={blob,name:String(name||'Document-GMNF-SPLV.pdf')};attach();label.textContent='PDF prêt : '+last.name+' — destinataire : emilienchardin7@gmail.com';bar.style.display='block'}
  window.gmnfCapturePdfForEmail=capture;
@@ -3780,10 +3781,10 @@ setTimeout(promptArchiveDueYears,200);</script><script>
   send.disabled=true;send.textContent='Envoi en cours…';
   try{
    const bytes=new Uint8Array(await last.blob.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
-   const response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.token},body:JSON.stringify({filename:last.name,pdfBase64:btoa(binary)})});
+   const response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.token},body:JSON.stringify({filename:last.name,pdfBase64:btoa(binary),message:"Voici le document demandé.\n\nCordialement.\nGMNF-SPLV"})});
    const result=await response.json();if(!response.ok||!result.success)throw new Error(result.error||'Échec de l’envoi');
    alert('PDF accepté pour envoi à emilienchardin7@gmail.com.');bar.style.display='none';
-  }catch(e){alert('Envoi impossible : '+e.message)}finally{send.disabled=false;send.textContent='✉ Recevoir ce PDF par e-mail'}
+  }catch(e){alert('Envoi impossible : '+e.message)}finally{send.disabled=false;send.textContent='Envoie par mail'}
  };
  document.addEventListener('DOMContentLoaded',attach,{once:true});
 })();

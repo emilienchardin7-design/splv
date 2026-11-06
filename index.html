@@ -448,8 +448,8 @@ const showWorkspace=()=>{document.querySelector('#welcome').style.display='none'
 // Connexion basée sur les identifiants de la base locale des professeurs.
 const teacherSessionKey='gmnfPilot:loggedTeacherId';
 const gmnfAdminUsername='EMILIEN.CHARDIN';
-function gmnfCurrentTeacher(){return getTeacherRegistry().find(t=>String(t.id)===sessionStorage.getItem(teacherSessionKey))||null}
-function gmnfIsAdmin(){const t=gmnfCurrentTeacher();return !!t&&String(t.username||teacherLogin(t.firstName,t.lastName)).toUpperCase()===gmnfAdminUsername}
+function gmnfCurrentTeacher(){return {id:'gmnf-admin-emilien',username:gmnfAdminUsername,firstName:'Emilien',lastName:'Chardin'};}
+function gmnfIsAdmin(){return true;}
 
 const GMNF_API='https://gmnf-splv-api.emilienchardin7.workers.dev';
 const GMNF_AUTH_KEY='gmnfSplv:apiSession';
@@ -464,20 +464,12 @@ document.querySelector('#loginForm').addEventListener('submit',async event=>{
  const submit=event.currentTarget.querySelector('[type="submit"]');
  submit.disabled=true;
  try{
-  let teacher;
-  if(user===gmnfAdminUsername){
+   if(user!==gmnfAdminUsername)throw new Error('Identifiant invalide.');
    const response=await fetch(GMNF_API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
    const result=await response.json();
-   if(!response.ok||!result.token)throw new Error(result.error||'Connexion administrateur refusée');
+   if(!response.ok||!result.token)throw new Error(result.error||'Connexion Cloudflare refusée');
    sessionStorage.setItem(GMNF_AUTH_KEY,JSON.stringify({token:result.token,expires:Date.now()+result.expiresIn*1000}));
-   const registry=getTeacherRegistry();
-   teacher=registry.find(t=>String(t.username||teacherLogin(t.firstName,t.lastName)).toUpperCase()===gmnfAdminUsername);
-   if(!teacher){teacher={id:'gmnf-admin-emilien',username:gmnfAdminUsername,firstName:'Emilien',lastName:'Chardin',subjects:[],classes:[]};registry.push(teacher);putTeacherRegistry(registry)}
-  }else{
-   teacher=getTeacherRegistry().find(t=>String(t.username||teacherLogin(t.firstName,t.lastName)).trim().toUpperCase()===user&&String(t.password||'')===pass);
-   if(!teacher)throw new Error('Identifiant ou mot de passe incorrect.');
-   sessionStorage.removeItem(GMNF_AUTH_KEY);
-  }
+   const teacher=gmnfCurrentTeacher();
   error.hidden=true;
   sessionStorage.setItem(teacherSessionKey,String(teacher.id));
   localStorage.setItem('gmnfPilot:myPlanningTeacherId',String(teacher.id));
@@ -520,7 +512,7 @@ const gmnfSubjectName=value=>{const v=String(value||'').trim();if(/^(?:écologie
 const classTabs=['Informations de la classe','Planning','Appel','Notes','Cahier de textes','Chantiers','CCF','Bulletins'];let tab=tabs[0],activeClass=null;const initial={classes:[],students:[],courses:[],sites:[],grades:[],evaluations:[],events:[],materials:[],expenses:[],attendance:[],usefulLinks:[],classTeachers:{},classDetails:{},weeklyPlans:{}};
 // Chaque enseignant possède un espace de travail annuel distinct sur cet appareil.
 // L'administrateur conserve les données historiques, sans les exposer aux autres comptes.
-const storageKey=y=>{const teacher=gmnfCurrentTeacher();return teacher&&!gmnfIsAdmin()?'gmnfPilot:teacherSpace:'+encodeURIComponent(String(teacher.id))+':schoolYear:'+y:'gmnfPilot:schoolYear:'+y};
+const storageKey=y=>'gmnfPilot:schoolYear:'+y;
 // Réglages globaux : indépendants des données et archives de chaque année scolaire.
 const globalSettingsKeys=Object.freeze({defaultSignature:'gmnfPilot:defaultSignature'});
 const teacherRegistryKey='gmnfPilot:teacherRegistry';
@@ -581,28 +573,12 @@ function getFiliereSubjects(){
  return [...names].sort((a,b)=>a.localeCompare(b,'fr'));
 }
 
-function getTeacherRegistry(){try{const value=JSON.parse(localStorage.getItem(teacherRegistryKey)||'[]');return Array.isArray(value)?value:[]}catch(e){return []}}
-function putTeacherRegistry(list){localStorage.setItem(teacherRegistryKey,JSON.stringify(list))}
+function getTeacherRegistry(){try{const value=JSON.parse(localStorage.getItem(teacherRegistryKey)||'[]');return Array.isArray(value)?value.map(({password,username,...teacher})=>teacher):[]}catch(e){return []}}
+function putTeacherRegistry(list){localStorage.setItem(teacherRegistryKey,JSON.stringify(list.map(({password,username,...teacher})=>teacher)))}
 function teacherLoginPart(value){return String(value||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9-]/g,'').toUpperCase()}
 function teacherLogin(first,last){return teacherLoginPart(first)+'.'+teacherLoginPart(last)}
-function randomTeacherPassword(){
- const letters='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',digits='0123456789',all=letters+digits;
- const bytes=new Uint32Array(12);crypto.getRandomValues(bytes);
- const chars=[letters[bytes[0]%letters.length],digits[bytes[1]%digits.length]];
- for(let i=2;i<12;i++)chars.push(all[bytes[i]%all.length]);
- for(let i=chars.length-1;i>0;i--){const j=bytes[i]% (i+1);[chars[i],chars[j]]=[chars[j],chars[i]]}
- return chars.join('');
-}
-function ensureTeacherCredentials(){
- const entries=getTeacherRegistry();let changed=false;
- for(const t of entries){
-  const login=teacherLogin(t.firstName,t.lastName);
-  if(!t.username&&login!=='.'){t.username=login;changed=true}
-  if(!t.password){t.password=randomTeacherPassword();changed=true}
- }
- if(changed)putTeacherRegistry(entries);
-}
-
+// Retirer les anciens identifiants locaux sans supprimer les fiches pédagogiques.
+try { const old=JSON.parse(localStorage.getItem(teacherRegistryKey)||'[]'); if(Array.isArray(old)&&old.some(t=>t.password!==undefined||t.username!==undefined))putTeacherRegistry(old); } catch(e) { console.warn('Migration des fiches enseignants non effectuée'); }
 function teacherDisplay(t){return [t.lastName,t.firstName].filter(Boolean).join(' ').trim()}
 function addTeachersToRegistry(teachers){
  const entries=getTeacherRegistry();
@@ -658,7 +634,7 @@ function gmnfOpenTeacherSpace(){
 
 const save=()=>{if(localStorage.getItem('gmnfPilot:archive:'+window.gmnfSchoolYear))return;localStorage.setItem(gmnfSharedMaterialsKey,JSON.stringify(db.materials||[]));localStorage.setItem(storageKey(window.gmnfSchoolYear),JSON.stringify(db))};
 // Archives annuelles indépendantes des données actives : une archive n'est jamais écrasée.
-const archiveKey=y=>{const teacher=gmnfCurrentTeacher();return teacher&&!gmnfIsAdmin()?'gmnfPilot:teacherSpace:'+encodeURIComponent(String(teacher.id))+':archive:'+y:'gmnfPilot:archive:'+y};
+const archiveKey=y=>'gmnfPilot:archive:'+y;
 const archiveLabel=y=>'Promo '+y+'-'+(Number(y)+1);
 const archiveDeadline=y=>`${Number(y)+1}-08-15`;
 const localISO=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
@@ -964,11 +940,6 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
  };
  panel.querySelectorAll('[data-mailtab]').forEach(b=>b.onclick=()=>{section=b.dataset.mailtab;selected=null;activeFolder='';draw()});draw();
  }else if(tab==='Réglages'&&gmnfIsAdmin()){
- const connected=gmnfCurrentTeacher();
- const accountCard=card('<h3>Identifiants de connexion</h3><div class="gmnf-credentials"><label>Identifiant<input type="text" id="gmnfSettingsUsername" readonly autocomplete="off"></label><label>Mot de passe<div class="gmnf-password-row"><input id="gmnfSettingsPassword" type="password" readonly autocomplete="off"><button type="button" id="gmnfTogglePassword" aria-pressed="false">Afficher</button></div></label></div><p class="muted">Identifiants du professeur connecté, issus de la base de données des professeurs. Vous pouvez modifier le mot de passe depuis sa fiche.</p>');
- accountCard.querySelector('#gmnfSettingsUsername').value=connected?.username||teacherLogin(connected?.firstName,connected?.lastName);
- accountCard.querySelector('#gmnfSettingsPassword').value=connected?.password||'';
- accountCard.querySelector('#gmnfTogglePassword').onclick=()=>{const field=accountCard.querySelector('#gmnfSettingsPassword');const toggle=accountCard.querySelector('#gmnfTogglePassword');const visible=field.type==='password';field.type=visible?'text':'password';toggle.textContent=visible?'Masquer':'Afficher';toggle.setAttribute('aria-pressed',String(visible))};
  const settingsCard=card('<h3>Signature par défaut</h3><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><input type="file" accept="image/png,image/jpeg,image/webp" id="defaultSignatureFile"><button type="button" id="removeDefaultSignature" style="background:#fff1ed;color:#8b3028">Supprimer la signature</button></div><div id="defaultSignaturePreview" style="margin-top:16px;padding:15px;border:1px solid #c4d7c9;border-radius:10px;background:#fff;min-height:90px;display:flex;align-items:center;justify-content:center"></div><p class="muted" id="defaultSignatureStatus"></p>');
  const preview=settingsCard.querySelector('#defaultSignaturePreview'),status=settingsCard.querySelector('#defaultSignatureStatus');
  const refresh=()=>{const data=localStorage.getItem(globalSettingsKeys.defaultSignature);preview.replaceChildren();if(data){const img=document.createElement('img');img.src=data;img.alt='Signature par défaut';img.style.cssText='max-width:100%;max-height:160px;object-fit:contain';preview.append(img);status.textContent='Signature enregistrée sur cet appareil.'}else{preview.textContent='Aucune signature par défaut enregistrée.';status.textContent=''}};
@@ -1076,11 +1047,6 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
   </section>`;
   const form=overlay.querySelector('form');
   for(const field of ['lastName','firstName','phone','email'])form.elements.namedItem(field).value=teacher?.[field]||'';
-  const loginInput=form.elements.namedItem('username'),passwordInput=form.elements.namedItem('password');
-  const updateLogin=()=>{loginInput.value=teacherLogin(form.elements.namedItem('firstName').value,form.elements.namedItem('lastName').value)};
-  form.elements.namedItem('firstName').addEventListener('input',updateLogin);
-  form.elements.namedItem('lastName').addEventListener('input',updateLogin);
-  updateLogin();passwordInput.value=teacher?.password||(!editing?randomTeacherPassword():'');
   const subjectsArea=form.querySelector('.gmnf-teacher-subjects');
   const searchInput=form.querySelector('.gmnf-subject-search');
   const countLabel=form.querySelector('.gmnf-subject-count');
@@ -1134,16 +1100,13 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
   form.onsubmit=e=>{
    e.preventDefault();const entry={};for(const field of ['lastName','firstName','phone','email'])entry[field]=form.elements.namedItem(field).value.trim();
    entry.username=teacherLogin(entry.firstName,entry.lastName);
-   entry.password=passwordInput.value.trim();
    entry.subjects=[...selected].sort((a,b)=>a.localeCompare(b,'fr'));
    entry.subject=entry.subjects.join(', ');
    const error=overlay.querySelector('.gmnf-teacher-error');
    if(!entry.lastName||!entry.firstName){error.hidden=false;error.textContent='Le nom et le prénom sont obligatoires.';return}
-   if(entry.password.length<8||!/[A-Za-z]/.test(entry.password)||!/[0-9]/.test(entry.password)){error.hidden=false;error.textContent='Le mot de passe doit contenir au moins 8 caractères, dont une lettre et un chiffre.';passwordInput.focus();return}
    const entries=getTeacherRegistry();
    const duplicate=entries.find(t=>t.id!==teacher?.id&&t.lastName.toLocaleLowerCase('fr')===entry.lastName.toLocaleLowerCase('fr')&&t.firstName.toLocaleLowerCase('fr')===entry.firstName.toLocaleLowerCase('fr'));
    if(duplicate){error.hidden=false;error.textContent='Un professeur avec ce nom et ce prénom existe déjà. Modifiez sa fiche.';return}
-   if(entries.some(t=>t.id!==teacher?.id&&String(t.username||teacherLogin(t.firstName,t.lastName)).toUpperCase()===entry.username.toUpperCase())){error.hidden=false;error.textContent='Cet identifiant est déjà attribué à un autre professeur.';return}
    if(editing){const index=entries.findIndex(t=>t.id===teacher.id);if(index>=0)entries[index]={...entries[index],...entry};else entries.push({...entry,id:teacher.id});}
    else entries.push({...entry,id:'teacher-'+Date.now()+'-'+Math.random().toString(36).slice(2)});
    try{putTeacherRegistry(entries)}catch(err){error.hidden=false;error.textContent='Enregistrement impossible : vérifiez l’espace de stockage disponible.';return}
@@ -1154,7 +1117,6 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
  };
  const refreshTeachers=()=>{
   teacherList.replaceChildren();
-  ensureTeacherCredentials();
   const list=getTeacherRegistry().slice().sort((a,b)=>teacherDisplay(a).localeCompare(teacherDisplay(b),'fr'));
   if(!list.length){teacherList.textContent='Aucun professeur enregistré. Cliquez sur « Ajouter un professeur » pour créer une fiche.';return}
   for(const teacher of list){
@@ -3748,7 +3710,7 @@ setTimeout(promptArchiveDueYears,200);</script><script>
   if(!last)return;
   if(last.blob.size>8*1024*1024){alert('Ce PDF dépasse 8 Mo.');return}
   let session;try{session=JSON.parse(sessionStorage.getItem('gmnfSplv:apiSession')||'null')}catch{}
-  if(!session||!session.token||session.expires<=Date.now()){alert('Connecte-toi à ton compte administrateur EMILIEN.CHARDIN pour envoyer ce PDF.');return}
+  if(!session||!session.token||session.expires<=Date.now()){alert('Connecte-toi avec ton compte Cloudflare EMILIEN.CHARDIN pour envoyer ce PDF.');return}
   send.disabled=true;send.textContent='Envoi en cours…';
   try{
    const bytes=new Uint8Array(await last.blob.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));

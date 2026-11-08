@@ -3790,4 +3790,48 @@ setTimeout(promptArchiveDueYears,200);</script><script>
  document.addEventListener('DOMContentLoaded',attach,{once:true});
 })();
 </script>
+<script>
+/* Navigation des notes : déplacement vertical dans la même colonne.
+   Extension d'interface uniquement ; aucune modification des services distants. */
+(function(){
+ document.addEventListener('keydown',function(event){
+  if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)||event.altKey||event.ctrlKey||event.metaKey||event.isComposing)return;
+  const current=event.target;
+  if(!(current instanceof HTMLInputElement))return;
+  const table=current.closest('table.gmnf-grade-entry-table, table');
+  if(!table)return;
+  const isGrade=table.classList.contains('gmnf-grade-entry-table')&&current.classList.contains('gmnf-grade-input');
+  const isBulletin=current.matches('input[data-bmark]:not(:disabled)');
+  if(!isGrade&&!isBulletin)return;
+  const selector=isGrade?'input.gmnf-grade-input':'input[data-bmark]:not(:disabled)';
+  const row=current.closest('tr');
+  if(!row)return;
+  const rows=[...table.querySelectorAll('tbody tr')];
+  const rowIndex=rows.indexOf(row);
+  const cells=[...row.querySelectorAll(selector)];
+  const colIndex=cells.indexOf(current);
+  if(rowIndex<0||colIndex<0)return;
+  let nextRow=rowIndex,nextCol=colIndex;
+  if(event.key==='ArrowUp')nextRow--;
+  else if(event.key==='ArrowDown')nextRow++;
+  else if(event.key==='ArrowLeft')nextCol--;
+  else nextCol++;
+  if(nextRow<0||nextRow>=rows.length||nextCol<0)return;
+  let destination=[...rows[nextRow].querySelectorAll(selector)][nextCol];
+  if(!destination)return; // Pas de retour automatique à la première colonne.
+  event.preventDefault();
+  // Enregistrer la note avant de changer de case. Certaines vues se redessinent.
+  const oldValue=current.value;
+  current.dispatchEvent(new Event('change',{bubbles:true}));
+  const refreshedTable=document.querySelector(isGrade?'table.gmnf-grade-entry-table': 'table');
+  if(isGrade){
+   const newTable=document.querySelector('table.gmnf-grade-entry-table');
+   destination=newTable?.querySelectorAll('tbody tr')[nextRow]?.querySelectorAll(selector)[nextCol];
+  }else if(!destination.isConnected){
+   destination=table.querySelectorAll('tbody tr')[nextRow]?.querySelectorAll(selector)[nextCol];
+  }
+  if(destination&&destination.isConnected){destination.focus();destination.select?.();}
+ },true);
+})();
+</script>
 </body></html>

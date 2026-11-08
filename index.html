@@ -1376,37 +1376,35 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
   const splitName=name=>{const tokens=String(name||'').trim().split(/\s+/).filter(Boolean);return {lastName:tokens.shift()||'',firstName:tokens.join(' ')}};
   const teacherSelections=[];
   for(const subject of subjects){
-   const previous=(oldDetails.teachers||[]).find(t=>t.subject===subject)||{};
-   const names=previous.lastName!==undefined?{lastName:previous.lastName,firstName:previous.firstName||''}:splitName(previous.name);
+   const previousLines=(oldDetails.teachers||[]).filter(t=>t.subject===subject);
    const tr=document.createElement('tr');tr.dataset.subject=subject;
    const tdSubject=document.createElement('td');tdSubject.textContent=subject;tr.append(tdSubject);
    const tdTeacher=document.createElement('td');
-   const select=document.createElement('select');select.setAttribute('aria-label','Professeur de '+subject);
-   select.style.cssText='width:100%;min-width:170px;font-size:13px;padding:7px';
-   select.add(new Option('— Aucun professeur —',''));
    const eligible=teachersRegistry.filter(t=>{
     const taught=Array.isArray(t.subjects)?t.subjects:(t.subject?String(t.subject).split(',').map(x=>x.trim()):[]);
     return taught.includes(subject);
    });
-   // Proposer uniquement les enseignants associés à cette matière.
-   for(const t of eligible)select.add(new Option(teacherDisplay(t),t.id));
-   if(!eligible.length){
-    const option=new Option('Aucun professeur de cette matière dans la base','');
-    option.disabled=true;
-    select.add(option);
+   const selectedIds=new Set(previousLines.map(t=>String(t.teacherId||'')).filter(Boolean));
+   for(const t of eligible){
+    if(previousLines.some(line=>String(line.teacherId||'')===String(t.id)||(!line.teacherId&&String(line.lastName||'').trim().toLocaleLowerCase('fr')===String(t.lastName||'').trim().toLocaleLowerCase('fr')&&String(line.firstName||'').trim().toLocaleLowerCase('fr')===String(t.firstName||'').trim().toLocaleLowerCase('fr'))))selectedIds.add(String(t.id));
    }
-   const previousTeacherId=previous.teacherId;
-   const selected=eligible.find(t=>t.id===previousTeacherId)||eligible.find(t=>t.lastName?.trim().toLocaleLowerCase('fr')===(names.lastName||'').trim().toLocaleLowerCase('fr')&&t.firstName?.trim().toLocaleLowerCase('fr')===(names.firstName||'').trim().toLocaleLowerCase('fr'));
-   if(selected)select.value=selected.id;
-   if(!selected&&(names.lastName||names.firstName)){
-    select.add(new Option('Ancien : '+[names.lastName,names.firstName].filter(Boolean).join(' ')+' (hors base matière)','legacy'));
-    select.value='legacy';
+   const group=document.createElement('div');group.style.cssText='display:grid;gap:7px;padding:5px 0';
+   if(!eligible.length){const hint=document.createElement('small');hint.className='muted';hint.textContent='Aucun professeur de cette matière dans la base';group.append(hint)}
+   for(const t of eligible){
+    const label=document.createElement('label');label.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #dce9df;border-radius:7px;background:#f8fbf8;cursor:pointer;font-size:13px';
+    const check=document.createElement('input');check.type='checkbox';check.value=String(t.id);check.checked=selectedIds.has(String(t.id));check.style.cssText='width:auto;margin:0;flex-shrink:0';
+    const text=document.createElement('span');text.textContent=teacherDisplay(t)+(t.phone?' · '+t.phone:'');
+    label.append(check,text);group.append(label);
    }
-   const hint=document.createElement('small');hint.style.cssText='display:block;color:#65766a;font-size:10px;margin-top:3px';
-   const refreshHint=()=>{const t=teachersRegistry.find(x=>x.id===select.value);hint.textContent=t?[t.phone,t.email].filter(Boolean).join(' · '):select.value==='legacy'?'Enseignant conservé (absent de la base)':''};
-   select.onchange=refreshHint;refreshHint();
-   tdTeacher.append(select,hint);tr.append(tdTeacher);teacherBody.append(tr);
-   teacherSelections.push({subject,select,names,previous});
+   const legacy=previousLines.filter(line=>!eligible.some(t=>String(t.id)===String(line.teacherId||'')||(!line.teacherId&&String(t.lastName||'').trim().toLocaleLowerCase('fr')===String(line.lastName||'').trim().toLocaleLowerCase('fr')&&String(t.firstName||'').trim().toLocaleLowerCase('fr')===String(line.firstName||'').trim().toLocaleLowerCase('fr'))));
+   for(const line of legacy){
+    const label=document.createElement('label');label.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px dashed #d5b88b;border-radius:7px;font-size:13px';
+    const check=document.createElement('input');check.type='checkbox';check.checked=true;check.style.cssText='width:auto;margin:0';
+    label.append(check,document.createTextNode((line.name||[line.lastName,line.firstName].filter(Boolean).join(' '))+' (ancien professeur)'));group.append(label);
+    teacherSelections.push({subject,legacyLine:line,check});
+   }
+   tdTeacher.append(group);tr.append(tdTeacher);teacherBody.append(tr);
+   teacherSelections.push({subject,group,eligible});
   }
   refreshDelegates();
   filiereSelect.addEventListener('change',()=>{
@@ -1434,11 +1432,14 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
    if(creating&&db.classes.includes(n)){error.textContent='Une classe porte déjà ce nom.';error.hidden=false;return}
    const pupils=studentsForClass();
    const chosen=role=>pupils.filter(p=>selectedIds[role].has(String(p.id))).map(studentLabel);
-   const teacherLines=teacherSelections.map(({subject,select,names,previous})=>{
-    const t=teachersRegistry.find(x=>x.id===select.value);
-    const lastName=t?.lastName||(select.value==='legacy'?names.lastName:''),firstName=t?.firstName||(select.value==='legacy'?names.firstName:'');
-    return {subject,teacherId:t?.id||(select.value==='legacy'?previous.teacherId:'')||'',lastName,firstName,name:[lastName,firstName].filter(Boolean).join(' ')};
-   }).filter(t=>t.lastName||t.firstName);
+   const teacherLines=teacherSelections.flatMap(item=>{
+    if(item.legacyLine)return item.check.checked?[{...item.legacyLine,subject:item.subject}]:[];
+    return [...item.group.querySelectorAll('input[type="checkbox"]:checked')].map(check=>{
+     const t=item.eligible.find(x=>String(x.id)===check.value);
+     if(!t)return null;
+     return {subject:item.subject,teacherId:t.id,lastName:t.lastName||'',firstName:t.firstName||'',name:[t.lastName,t.firstName].filter(Boolean).join(' ')};
+    }).filter(Boolean);
+   });
    const details={...oldDetails,filiereId:filiereSelect.value,level:classLevelSelect.value,delegates:chosen('delegates'),substitutes:chosen('substitutes'),teachers:teacherLines};
    const previousDetails=db.classDetails?.[n];
    const previousTeacher=db.classTeachers?.[n];
@@ -1522,8 +1523,8 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
    const hours=db.weeklyPlans?.[cls]?.[planMonday]?.[dayIndex]||{};
    for(const [time,subject] of Object.entries(hours)){
     if(!subject)continue;
-    const assignment=(db.classDetails?.[cls]?.teachers||[]).find(t=>String(t.subject)===String(subject));
-    if(!sameTeacher(assignment,selectedTeacher))continue;
+    const assignments=(db.classDetails?.[cls]?.teachers||[]).filter(t=>String(t.subject)===String(subject));
+    if(!assignments.some(assignment=>sameTeacher(assignment,selectedTeacher)))continue;
     const minutes=Number(time.slice(0,2))*60+Number(time.slice(3,5));
     if(!Number.isFinite(minutes))continue;
     todayEntries.push({cls,subject:String(subject),minutes});

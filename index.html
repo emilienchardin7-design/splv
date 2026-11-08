@@ -2759,6 +2759,28 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     doc.text(principal?clean(principal.firstName+' '+principal.lastName):'Non renseigne',58,65);
     doc.setFont('helvetica','bold');doc.text('Telephone :',12,71);
     doc.setFont('helvetica','normal');doc.text(principal?clean(principal.phone):'Non renseigne',58,71);
+    // Signature placée à droite des informations de l'élève.
+    const signH=26;
+    const sx=120,sw=78,sy=48;
+    doc.setDrawColor(...mid);doc.setLineWidth(0.35);
+    doc.roundedRect(sx,sy,sw,signH,1.5,1.5,'S');
+    doc.setFillColor(...pale);doc.roundedRect(sx+0.25,sy+0.25,sw-0.5,6,1,1,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...dark);
+    doc.text('Signature du professeur principal',sx+sw/2,sy+4.3,{align:'center'});
+    // Lire la signature sauvegardée pour l'élève et le trimestre affichés.
+    const signedImage=record.appSignature;
+    if(typeof signedImage==='string'&&/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(signedImage)){
+     try{
+      const props=doc.getImageProperties(signedImage);
+      const maxW=sw-7,maxH=signH-9;
+      const scale=Math.min(maxW/props.width,maxH/props.height);
+      if(Number.isFinite(scale)&&scale>0){
+       const w=props.width*scale,h=props.height*scale;
+       const format=/^data:image\/(jpeg|jpg)/i.test(signedImage)?'JPEG':'PNG';
+       doc.addImage(signedImage,format,sx+(sw-w)/2,sy+7+(maxH-h)/2,w,h);
+      }
+     }catch(error){console.warn('Impossible d’intégrer la signature au bulletin PDF :',error)}
+    }
     doc.setTextColor(...ink);
     let y=79;
     // Mise en page compacte : chaque bulletin reste sur une unique page A4 portrait.
@@ -2886,29 +2908,6 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     doc.setDrawColor(206,219,207);
     doc.rect(12,y,186,Math.min(commentHeight,availableComment));
     doc.text(lines,16,y+3.4,{lineHeightFactor:1.17});
-    // L'encadré conserve son emplacement dans le bas du bulletin A4.
-    const signH=27;
-    y=signatureTop;
-    const sx=112,sw=86,sy=y+4;
-    doc.setDrawColor(...mid);doc.setLineWidth(0.35);
-    doc.roundedRect(sx,sy,sw,signH,1.5,1.5,'S');
-    doc.setFillColor(...pale);doc.roundedRect(sx+0.25,sy+0.25,sw-0.5,6,1,1,'F');
-    doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(...dark);
-    doc.text('Signature du professeur principal',sx+sw/2,sy+4.3,{align:'center'});
-    // Lire la signature sauvegardée pour l'élève et le trimestre affichés.
-    const signedImage=record.appSignature;
-    if(typeof signedImage==='string'&&/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(signedImage)){
-     try{
-      const props=doc.getImageProperties(signedImage);
-      const maxW=sw-7,maxH=signH-9;
-      const scale=Math.min(maxW/props.width,maxH/props.height);
-      if(Number.isFinite(scale)&&scale>0){
-       const w=props.width*scale,h=props.height*scale;
-       const format=/^data:image\/(jpeg|jpg)/i.test(signedImage)?'JPEG':'PNG';
-       doc.addImage(signedImage,format,sx+(sw-w)/2,sy+7+(maxH-h)/2,w,h);
-      }
-     }catch(error){console.warn('Impossible d’intégrer la signature au bulletin PDF :',error)}
-    }
     doc.setTextColor(...ink);
    });
    const filename='GMNF-SPLV-bulletins-'+window.gmnfSchoolYear+'-'+cls.replace(/[^a-zA-Z0-9]/g,'-')+'-T'+t+'.pdf';
@@ -3099,20 +3098,56 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
   if(!window.jspdf?.jsPDF || !window.jspdf.jsPDF.API.autoTable){alert('Le module PDF n’est pas disponible. Vérifiez votre connexion Internet.');return}
   const entries=evaluations().filter(e=>trimesterForDate(e.date)===t).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const margin=9, width=279;
-  doc.setFontSize(14);doc.text('Relevé de notes — '+cls,margin,14);
-  doc.setFontSize(9);doc.text('Trimestre '+t+' · Année scolaire '+schoolStart().slice(0,4)+'–'+schoolEnd().slice(0,4),margin,21);
+  const margin=8, usable=297-2*margin;
+  doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(29,83,55);
+  doc.text('Relevé de notes — '+cls,margin,13);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(50,60,55);
+  doc.text('Trimestre '+t+' · Année scolaire '+schoolStart().slice(0,4)+'–'+schoolEnd().slice(0,4),margin,19);
   if(!entries.length){doc.text('Aucune évaluation enregistrée pour ce trimestre.',margin,32)}
   else{
-   const head=['Nom','Prénom',...entries.map(e=>e.title||'Chantier')];
-   const body=pupils.slice().sort((a,b)=>String(a.lastName||a.name||'').localeCompare(String(b.lastName||b.name||''),'fr')).map(p=>[
+   const students=pupils.slice().sort((a,b)=>String(a.lastName||a.name||'').localeCompare(String(b.lastName||b.name||''),'fr'));
+   const scores=students.map(p=>entries.map(e=>{
+    const g=db.grades.find(g=>String(g.evaluationId)===String(e.id)&&String(g.student)===String(p.id));
+    const n=Number(g?.score),max=Number(e.max||20);
+    return g?.score===undefined||g.score===null||g.score===''||!Number.isFinite(n)||!Number.isFinite(max)||max<=0?null:n/max*20;
+   }));
+   const means=entries.map((e,j)=>{const nums=scores.map(r=>r[j]).filter(Number.isFinite);return nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null});
+   const fmt=n=>n===null?'—':n.toFixed(2).replace('.',',');
+   const head=['Nom','Prénom',...entries.map((e,i)=>{
+    const title=String(e.title||'Devoir '+(i+1));
+    const maxChars=entries.length>19?7:entries.length>13?10:entries.length>8?15:24;
+    return title.length>maxChars?title.slice(0,maxChars-1)+'…':title;
+   }),'Moyenne /20'];
+   const body=students.map((p,i)=>[
     p.lastName||p.name||p.nom||'',p.firstName||p.firstname||p.prenom||'',
-    ...entries.map(e=>{const g=db.grades.find(g=>String(g.evaluationId)===String(e.id)&&String(g.student)===String(p.id));return g?.score===undefined||g.score===null||g.score===''?'—':String(g.score).replace('.',',')})
+    ...scores[i].map(v=>fmt(v)),
+    fmt((()=>{const nums=scores[i].filter(Number.isFinite);return nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null})())
    ]);
-   const colWidth=Math.max(9,(width-53)/entries.length);
-   const columnStyles={0:{cellWidth:28},1:{cellWidth:25}};
-   for(let i=0;i<entries.length;i++)columnStyles[i+2]={cellWidth:colWidth};
-   doc.autoTable({startY:27,head:[head],body,theme:'grid',styles:{fontSize:entries.length>12?5:7,cellPadding:1,overflow:'linebreak',valign:'middle'},headStyles:{fillColor:[29,83,55],fontSize:entries.length>12?4.5:6},columnStyles,margin:{left:margin,right:margin,bottom:13},tableWidth:'auto',horizontalPageBreak:entries.length>18,horizontalPageBreakRepeat:[0,1],didDrawPage:()=>{doc.setFontSize(8);doc.text('GMNF SPLV · Trimestre '+t,margin,204)}});
+   const allScores=scores.flat().filter(Number.isFinite);
+   const allMean=allScores.length?allScores.reduce((a,b)=>a+b,0)/allScores.length:null;
+   body.push(['MOYENNE DES DEVOIRS','',...means.map(fmt),fmt(allMean)]);
+   const count=entries.length, firstW=count>17?25:30, secondW=count>17?23:28, avgW=23;
+   const scoreW=(usable-firstW-secondW-avgW)/count;
+   const columnStyles={0:{cellWidth:firstW},1:{cellWidth:secondW}};
+   for(let j=0;j<count;j++)columnStyles[j+2]={cellWidth:scoreW,halign:'center'};
+   columnStyles[count+2]={cellWidth:avgW,halign:'center',fontStyle:'bold',fillColor:[230,240,232]};
+   const rowHeight=Math.min(6.5,(191-27)/Math.max(body.length+1,1));
+   const fontSize=Math.max(3.4,Math.min(7.2,scoreW<9?4.3:scoreW<13?5.2:7,rowHeight*1.4));
+   doc.autoTable({startY:25,head:[head],body,theme:'grid',
+    margin:{left:margin,right:margin,top:25,bottom:8},tableWidth:usable,
+    styles:{fontSize,cellPadding:0.55,overflow:'ellipsize',valign:'middle',minCellHeight:rowHeight},
+    headStyles:{fillColor:[29,83,55],textColor:[255,255,255],fontSize:Math.max(3.2,fontSize-0.5),minCellHeight:Math.max(6,rowHeight)},
+    columnStyles,
+    didParseCell:data=>{
+     if(data.section!=='body')return;
+     const i=data.row.index,j=data.column.index;
+     if(i===students.length){data.cell.styles.fillColor=[220,235,224];data.cell.styles.fontStyle='bold';data.cell.styles.textColor=[25,75,48];return;}
+     if(j>=2&&j<count+2){const score=scores[i]?.[j-2],mean=means[j-2];
+      if(score!==null&&mean!==null){if(score<mean-1e-8)data.cell.styles.textColor=[190,35,45];else if(score>mean+1e-8)data.cell.styles.textColor=[28,82,185];}
+     }
+    },
+    didDrawPage:()=>{doc.setFontSize(7);doc.setTextColor(95);doc.text('GMNF SPLV · Trimestre '+t,margin,205)}
+   });
   }
   doc.save('Notes-'+cls.replace(/[^a-zA-Z0-9]/g,'-')+'-T'+t+'.pdf');
  }

@@ -1511,7 +1511,9 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
  const todayEntries=[];
  const availableTeachers=getTeacherRegistry().slice().sort((a,b)=>teacherDisplay(a).localeCompare(teacherDisplay(b),'fr'));
  const selectedTeacherId=sessionStorage.getItem(teacherSessionKey)||'';
- const selectedTeacher=availableTeachers.find(t=>String(t.id)===selectedTeacherId);
+ const normalizeTeacherName=v=>String(v||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
+ const selectedTeacher=availableTeachers.find(t=>String(t.id)===selectedTeacherId)
+  ||availableTeachers.find(t=>normalizeTeacherName(t.firstName)==='emilien'&&normalizeTeacherName(t.lastName)==='chardin'&&selectedTeacherId==='gmnf-admin-emilien');
  const sameTeacher=(assigned,teacher)=>{
   if(!assigned||!teacher)return false;
   if(assigned.teacherId&&String(assigned.teacherId)===String(teacher.id))return true;

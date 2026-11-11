@@ -496,9 +496,59 @@ document.addEventListener('DOMContentLoaded',()=>document.body.appendChild(statu
 const app=firebase.initializeApp(config);
 const auth=firebase.auth(app),firestore=firebase.firestore(app);
 const idFor=key=>encodeURIComponent(key);
+// Les valeurs longues sont réparties sur plusieurs documents Firestore.
+// Une version n'est visible qu'après écriture de tous ses morceaux et du manifeste.
+const CHUNK_LENGTH=180000;
+let flushing=false;
+function splitValue(value){const parts=[];for(let i=0;i<value.length;){let end=Math.min(i+CHUNK_LENGTH,value.length);if(end<value.length){const code=value.charCodeAt(end-1);if(code>=0xD800&&code<=0xDBFF)end--;}parts.push(value.slice(i,end));i=end;}return parts}
+function chunkId(key,version,index){return idFor(key)+'__chunk__'+version+'__'+index}
+function readValues(snapshot){
+  const docs=new Map();snapshot.forEach(doc=>docs.set(doc.id,doc.data()));
+  const result=new Map();
+  for(const [id,data] of docs){
+    if(typeof data.key!=='string'||!data.key.startsWith(prefix)||data.chunkPart===true)continue;
+    if(typeof data.value==='string'){result.set(data.key,data.value);continue;}
+    if(data.chunked!==true||typeof data.version!=='string'||!Number.isInteger(data.count)||data.count<1||data.count>10000)continue;
+    const parts=[];let valid=true;
+    for(let i=0;i<data.count;i++){
+      const part=docs.get(chunkId(data.key,data.version,i));
+      if(!part||part.chunkPart!==true||part.key!==data.key||part.version!==data.version||typeof part.value!=='string'){valid=false;break;}
+      parts.push(part.value);
+    }
+    if(valid)result.set(data.key,parts.join(''));
+    else console.warn('Synchronisation incomplète, valeur conservée localement :',data.key);
+  }
+  return result;
+}
+async function writeValue(key,value){
+  const doc=collection.doc(idFor(key));
+  if(new TextEncoder().encode(value).length<700000){
+    await doc.set({key,value,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});return;
+  }
+  const parts=splitValue(value);
+  const version=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);
+  // Écrire les morceaux d'abord. Le manifeste final rend la version complète visible.
+  for(let i=0;i<parts.length;i+=350){
+    const batch=firestore.batch();
+    parts.slice(i,i+350).forEach((part,j)=>batch.set(collection.doc(chunkId(key,version,i+j)),{key,version,chunkPart:true,value:part}));
+    await batch.commit();
+  }
+  await doc.set({key,chunked:true,version,count:parts.length,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+}
 function queue(key,value){if(!ready||applying)return;pending.set(key,value);setStatus('sauvegarde en attente…');clearTimeout(timer);timer=setTimeout(flush,650)}
 Storage.prototype.setItem=function(key,value){const result=originalSet.apply(this,arguments);if(this===localStorage&&String(key).startsWith(prefix))queue(String(key),String(value));return result};
-async function flush(){if(!ready||!collection||!pending.size)return;const batch=[...pending.entries()];pending.clear();setStatus('enregistrement…');try{await Promise.all(batch.map(([key,value])=>collection.doc(idFor(key)).set({key,value,updatedAt:firebase.firestore.FieldValue.serverTimestamp()})));setStatus('synchronisé ✓')}catch(e){for(const [key,value] of batch)if(!pending.has(key))pending.set(key,value);setStatus('erreur de sauvegarde : '+e.message);console.error('Firebase sync',e)}}
+async function flush(){
+  if(flushing||!ready||!collection||!pending.size)return;
+  flushing=true;const entries=[...pending.entries()];entries.forEach(([key])=>pending.delete(key));
+  setStatus('enregistrement…');let failures=0;
+  try{
+    for(const [key,value] of entries){
+      try{await writeValue(key,value)}catch(e){failures++;if(!pending.has(key))pending.set(key,value);console.error('Firebase sync',key,e)}
+    }
+    if(failures)setStatus('erreur de sauvegarde : '+failures+' élément(s) non synchronisé(s)');
+    else setStatus('synchronisé ✓');
+  }finally{flushing=false;if(pending.size&&!failures){clearTimeout(timer);timer=setTimeout(flush,650)}}
+}
 function loginDialog(){return new Promise((resolve,reject)=>{const d=document.createElement('dialog');d.id='gmnf-firebase-dialog';d.innerHTML='<h3>Connexion Firebase</h3><p>Cette connexion indépendante permet de synchroniser GMNF SPLV entre tes appareils.</p><form method="dialog"><input type="email" required autocomplete="username" placeholder="Adresse Firebase" value="emilienchardin7@gmail.com"><input type="password" required autocomplete="current-password" placeholder="Mot de passe Firebase"><p class="fb-error" style="color:#a12c2c"></p><button type="submit">Connecter Firebase</button></form>';document.body.appendChild(d);d.addEventListener('cancel',e=>e.preventDefault());d.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=d.querySelector('button');btn.disabled=true;try{await auth.signInWithEmailAndPassword(d.querySelector('[type=email]').value.trim(),d.querySelector('[type=password]').value);d.close();d.remove();resolve()}catch(err){d.querySelector('.fb-error').textContent='Connexion refusée : '+err.message;btn.disabled=false}});d.showModal()})}
 async function connect(){
 try{
@@ -509,10 +559,18 @@ if(auth.currentUser.uid!==UID)throw new Error('Ce compte Firebase ne possède pa
 collection=firestore.collection('gmnf_sync_v1');setStatus('chargement des données…');
 const snapshot=await collection.get({source:'server'});
 applying=true;
-try{snapshot.forEach(doc=>{const data=doc.data();if(typeof data.key==='string'&&data.key.startsWith(prefix)&&typeof data.value==='string')originalSet.call(localStorage,data.key,data.value)})}finally{applying=false}
+try{for(const [key,value] of readValues(snapshot))originalSet.call(localStorage,key,value)}finally{applying=false}
 ready=true;
 // Les données distantes prévalent au démarrage. Les anciennes données fictives locales non publiées ne sont pas importées automatiquement.
-unsub=collection.onSnapshot(snapshot=>{if(!ready)return;let changed=false;applying=true;try{snapshot.docChanges().forEach(change=>{if(change.type==='removed')return;const data=change.doc.data();if(typeof data.key!=='string'||!data.key.startsWith(prefix)||typeof data.value!=='string'||pending.has(data.key))return;if(localStorage.getItem(data.key)!==data.value){originalSet.call(localStorage,data.key,data.value);changed=true}})}finally{applying=false}if(changed&&document.querySelector('#workspace')?.style.display!=='none'){setStatus('mise à jour reçue — recharger la page pour afficher les changements');}else if(!pending.size)setStatus('synchronisé ✓')},e=>setStatus('écoute interrompue : '+e.message));
+unsub=collection.onSnapshot(snapshot=>{
+  if(!ready)return;let changed=false;applying=true;
+  try{for(const [key,value] of readValues(snapshot)){
+    if(pending.has(key))continue;
+    if(localStorage.getItem(key)!==value){originalSet.call(localStorage,key,value);changed=true;}
+  }}finally{applying=false}
+  if(changed&&document.querySelector('#workspace')?.style.display!=='none')setStatus('mise à jour reçue — recharger la page pour afficher les changements');
+  else if(!pending.size)setStatus('synchronisé ✓');
+},e=>setStatus('écoute interrompue : '+e.message));
 setStatus('synchronisé ✓');return true;
 }catch(e){ready=false;setStatus('non synchronisé — '+e.message);alert('Connexion Firebase impossible. Les modifications ne seront pas synchronisées : '+e.message);return false}
 }

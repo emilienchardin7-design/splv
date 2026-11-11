@@ -4065,16 +4065,68 @@ function install(){
   const rawSave=doc.save,rawOutput=doc.output;
   if(typeof rawSave!=='function'||typeof rawOutput!=='function')return doc;
   let logoDone=false;
+  // Repérer les zones occupées lors de la construction du PDF, y compris les tableaux autoTable.
+  const occupied=new Map();
+  function mark(page,x,y,w,h){
+   if(![x,y,w,h].every(Number.isFinite))return;
+   if(w<=0||h<=0)return;
+   if(!occupied.has(page))occupied.set(page,[]);
+   occupied.get(page).push([x,y,x+w,y+h]);
+  }
+  const page=()=>{try{return doc.internal.getCurrentPageInfo().pageNumber}catch(e){return 1}};
+  const rawText=doc.text;
+  if(typeof rawText==='function')doc.text=function(txt,x,y,...rest){
+   try{
+    const opts=(typeof x==='object'&&x!==null)?x:(rest.find(v=>v&&typeof v==='object'&&!Array.isArray(v))||{});
+    const xx=typeof x==='number'?x:Number(opts.x), yy=typeof y==='number'?y:Number(opts.y);
+    const lines=Array.isArray(txt)?txt.map(String):String(txt??'').split('\n');
+    const fs=doc.getFontSize?.()||10, unit=doc.internal.scaleFactor||1;
+    const lh=fs/unit*(doc.getLineHeightFactor?.()||1.15);
+    const widths=lines.map(line=>doc.getTextWidth?.(line)||line.length*fs/unit*.5);
+    const width=Math.max(0,...widths),height=Math.max(lh,lines.length*lh);
+    const align=opts.align||'left';const left=align==='right'?xx-width:align==='center'?xx-width/2:xx;
+    mark(page(),left-0.8,yy-lh*0.95,width+1.6,height+1.2);
+   }catch(e){}
+   return rawText.apply(this,arguments);
+  };
+  for(const method of ['rect','roundedRect']){
+   const original=doc[method];if(typeof original!=='function')continue;
+   doc[method]=function(x,y,w,h,...rest){
+    try{mark(page(),Number(x),Number(y),Number(w),Number(h))}catch(e){}
+    return original.apply(this,arguments);
+   };
+  }
+  const rawAddImage=doc.addImage;
+  if(typeof rawAddImage==='function')doc.addImage=function(){
+   try{
+    const args=arguments;
+    if(typeof args[2]==='number')mark(page(),Number(args[2]),Number(args[3]),Number(args[4]),Number(args[5]));
+   }catch(e){}
+   return rawAddImage.apply(this,arguments);
+  };
   function addLogo(){
    if(logoDone)return;logoDone=true;
    let src='';try{src=localStorage.getItem('gmnfPilot:pdfLogo')||document.querySelector('img.fox-logo')?.src||''}catch(e){}
-   if(!src||!src.startsWith('data:image/')||typeof doc.addImage!=='function')return;
-   let oldPage=1;try{
-    oldPage=doc.internal.getCurrentPageInfo?.().pageNumber||1;
-    const total=doc.internal.getNumberOfPages();
+   if(!src||!src.startsWith('data:image/')||typeof rawAddImage!=='function')return;
+   let oldPage=1;
+   try{
+    oldPage=page();const total=doc.internal.getNumberOfPages();
     for(let i=1;i<=total;i++){
-     doc.setPage(i);const width=doc.internal.pageSize.getWidth();
-     doc.addImage(src,src.startsWith('data:image/jpeg')?'JPEG':src.startsWith('data:image/webp')?'WEBP':'PNG',width-26,4,19,12,undefined,'FAST');
+     doc.setPage(i);
+     const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight();
+     // Petits logos dans les marges ; aucune zone déjà utilisée ne doit être recouverte.
+     const logoW=Math.min(17,W*.075),logoH=logoW*.62;
+     const candidates=[
+      [W-logoW-5,3], // en-tête à droite
+      [5,3], // en-tête à gauche
+      [W-logoW-5,H-logoH-4], // pied de page à droite
+      [5,H-logoH-4] // pied de page à gauche
+     ];
+     const boxes=occupied.get(i)||[];
+     const safe=candidates.find(([x,y])=>boxes.every(([l,t,r,b])=>x+logoW+2<l||x-2>r||y+logoH+2<t||y-2>b));
+     if(!safe){console.info('Logo PDF omis sur la page '+i+' : aucun espace libre sans chevauchement.');continue}
+     const fmt=src.startsWith('data:image/jpeg')?'JPEG':src.startsWith('data:image/webp')?'WEBP':'PNG';
+     rawAddImage.call(doc,src,fmt,safe[0],safe[1],logoW,logoH,undefined,'FAST');
     }
    }catch(e){console.warn('Logo PDF non ajouté',e)}finally{try{doc.setPage(oldPage)}catch(e){}}
   }

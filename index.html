@@ -873,7 +873,7 @@ function syncMaterialStates(){for(const m of db.materials){const value=materialA
 
 function gmnfConfiguredDates(){try{return JSON.parse(localStorage.getItem('gmnfPilot:schoolCalendar:'+String(window.gmnfSchoolYear))||'{}')||{}}catch(e){return {}}}
 function gmnfTrimesterBounds(t){const y=Number(window.gmnfSchoolYear),c=gmnfConfiguredDates();const defaults=[null,[`${y}-09-01`,`${y}-11-30`],[`${y}-12-01`,`${y+1}-02-28`],[`${y+1}-03-01`,`${y+1}-08-31`]];return t>=1&&t<=3?[c['t'+t+'Debut']||defaults[t][0],c['t'+t+'Fin']||defaults[t][1]]:null}
-function trimesterForDate(date){if(!date)return 0;const d=String(date).slice(0,10);for(let t=1;t<=3;t++){const b=gmnfTrimesterBounds(t);if(d>=b[0]&&d<=b[1])return t}return 0}
+function gmnfFormatTrimesterPeriod(t){const b=gmnfTrimesterBounds(t);const fmt=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||'');return m?m[3]+'/'+m[2]+'/'+m[1]:String(d||'');};return fmt(b[0])+' au '+fmt(b[1])} function trimesterForDate(date){if(!date)return 0;const d=String(date).slice(0,10);for(let t=1;t<=3;t++){const b=gmnfTrimesterBounds(t);if(d>=b[0]&&d<=b[1])return t}return 0}
 function gmnfCalendarEvents(){const c=gmnfConfiguredDates(),items=[];const single=[['rentree','Rentrée scolaire','Cours'],['conseilT1','Conseil de classe T1','Réunion'],['conseilT2','Conseil de classe T2','Réunion'],['conseilT3','Conseil de classe T3','Réunion'],['reunionParents','Réunion parents-professeurs','Réunion']];const ranges=[['vacancesToussaint','Vacances de la Toussaint','Vacances'],['vacancesNoel','Vacances de Noël','Vacances'],['vacancesHiver','Vacances d’hiver','Vacances'],['vacancesPrintemps','Vacances de printemps','Vacances'],['stage','Période de stage','Stage']];for(const [key,title,type] of single){if(c[key])items.push({id:'gmnf-config-'+key,date:c[key],endDate:c[key],title,type,source:'configured',classe:'Toutes les classes'})}for(const [key,title,type] of ranges){if(c[key+'Debut'])items.push({id:'gmnf-config-'+key,date:c[key+'Debut'],endDate:c[key+'Fin']||c[key+'Debut'],title,type,source:'configured',classe:'Toutes les classes'})}return items}
 function trimesterAverage(studentId,trimester,classe){let sum=0,weight=0;for(const ev of db.evaluations){if(ev.classe!==classe||trimesterForDate(ev.date)!==trimester)continue;const g=db.grades.find(g=>g.evaluationId===ev.id&&g.student===studentId);if(!g||g.score===undefined||g.score===null||g.score==='')continue;const max=Number(ev.max),coef=Number(ev.coef)||1;if(max>0&&coef>0){sum+=Number(g.score)/max*20*coef;weight+=coef}}return weight?sum/weight:null}
 const scope=()=>document.querySelector('#scope').value;
@@ -1109,7 +1109,7 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
  const showCalendarYear=()=>{calendarYear=calendarYearSelect.value;const saved=readCalendar();calendarFields.querySelectorAll('input[data-calendar-key]').forEach(input=>{input.value=saved[input.dataset.calendarKey]||''});yearCalendarCard.querySelector('#gmnfYearCalendarStatus').textContent='';};
  calendarYearSelect.onchange=showCalendarYear;
  showCalendarYear();
- yearCalendarCard.querySelector('#gmnfYearCalendarSave').onclick=()=>{const next={};calendarFields.querySelectorAll('input').forEach(input=>next[input.dataset.calendarKey]=input.value);try{localStorage.setItem(calendarStorageKey(),JSON.stringify(next));yearCalendarCard.querySelector('#gmnfYearCalendarStatus').textContent='Dates enregistrées pour '+calendarYear+'–'+(Number(calendarYear)+1)+'.';window.dispatchEvent(new CustomEvent('gmnf:school-calendar-updated'))}catch(e){yearCalendarCard.querySelector('#gmnfYearCalendarStatus').textContent='Enregistrement local impossible : espace navigateur saturé. Vérifie les logos et les documents volumineux ; ne supprime pas les données scolaires.'}};
+ yearCalendarCard.querySelector('#gmnfYearCalendarSave').onclick=()=>{const next={};calendarFields.querySelectorAll('input').forEach(input=>next[input.dataset.calendarKey]=input.value);try{const bounds=[1,2,3].map(t=>[next['t'+t+'Debut'],next['t'+t+'Fin']]);if(bounds.some(b=>(b[0]&&!b[1])||(!b[0]&&b[1])||(b[0]&&b[1]&&b[0]>b[1]))){alert('Renseignez des dates de début et de fin cohérentes pour chaque trimestre.');return;}for(let i=0;i<2;i++){if(bounds[i][1]&&bounds[i+1][0]&&bounds[i][1]>=bounds[i+1][0]){alert('Les trimestres ne doivent pas se chevaucher.');return;}}localStorage.setItem(calendarStorageKey(),JSON.stringify(next));yearCalendarCard.querySelector('#gmnfYearCalendarStatus').textContent='Dates enregistrées pour '+calendarYear+'–'+(Number(calendarYear)+1)+'. Les notes, bulletins et chantiers de cette année utiliseront ces dates.';window.dispatchEvent(new CustomEvent('gmnf:school-calendar-updated'))}catch(e){yearCalendarCard.querySelector('#gmnfYearCalendarStatus').textContent='Enregistrement local impossible : espace navigateur saturé. Vérifie les logos et les documents volumineux ; ne supprime pas les données scolaires.'}};
  const pdfLogoCard=card('<h3>Logo des documents PDF</h3><p class="muted">Choisissez un logo différent de celui du site pour les documents PDF. Sans logo personnalisé, le logo GMNF SPLV est utilisé.</p><input type="file" id="gmnfPdfLogoFile" accept="image/png,image/jpeg,image/webp"><button type="button" id="gmnfPdfLogoClear">Réinitialiser</button><div id="gmnfPdfLogoPreview" style="margin-top:10px"></div>');
  const pdfLogoKey='gmnfPilot:pdfLogo';const pdfLogoPreview=pdfLogoCard.querySelector('#gmnfPdfLogoPreview');
  const updatePdfLogoPreview=()=>{pdfLogoPreview.replaceChildren();const src=localStorage.getItem(pdfLogoKey);if(src){const img=document.createElement('img');img.src=src;img.alt='Logo PDF';img.style.cssText='max-width:200px;max-height:110px;object-fit:contain';pdfLogoPreview.append(img)}else{pdfLogoPreview.textContent='Logo du site utilisé par défaut.'}};
@@ -2067,14 +2067,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
   root.querySelector('#addChantier').style.display=openedSiteId!==null?'none':'';
   const sites=db.sites.filter(belongs).sort((x,y)=>(x.date||'').localeCompare(y.date||''));
   const schoolYear=Number(start.slice(0,4));
-  const quarters=[
-   {name:'Trimestre 1 · septembre à novembre',from:`${schoolYear}-09-01`,to:`${schoolYear}-11-30`},
-   {name:'Trimestre 2 · décembre à février',from:`${schoolYear}-12-01`,to:`${schoolYear+1}-02-28`},
-   {name:'Trimestre 3 · mars à mi-juin',from:`${schoolYear+1}-03-01`,to:`${schoolYear+1}-06-15`},
-   {name:'Hors période trimestrielle · mi-juin à août',from:`${schoolYear+1}-06-16`,to:`${schoolYear+1}-08-31`}
-  ];
-  // La fin février dépend de l'année (28 ou 29 jours).
-  quarters[1].to=`${schoolYear+1}-02-${new Date(schoolYear+1,2,0).getDate()}`;
+  const quarters=[1,2,3].map(t=>{const [from,to]=gmnfTrimesterBounds(t);return {name:'Trimestre '+t+' · '+gmnfFormatTrimesterPeriod(t),from,to}});   quarters.push({name:'Hors trimestres',from:'',to:''});
   function createEvaluationForChantier(x){
      db.evaluations=db.evaluations||[];
      const existing=db.evaluations.find(e=>e.classe===classe&&String(e.chantierId)===String(x.id));
@@ -2083,7 +2076,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
       return;
      }
      if(!x.date||!trimesterForDate(x.date)){
-      alert('La date du chantier doit appartenir à un trimestre scolaire (du 1er septembre au 15 juin) pour créer une évaluation.');return;
+      alert('La date du chantier doit appartenir à un trimestre configuré pour cette année scolaire.');return;
      }
      const evaluation={id:'eval-chantier-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),classe:classe,chantierId:x.id,title:x.title||'Chantier',subject:'Aménagement / Gestion des espaces naturels',date:x.date,max:20,coef:1};
      db.evaluations.push(evaluation);
@@ -2224,7 +2217,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
   }
   const assigned=new Set();
   list.innerHTML=quarters.map(q=>{
-   const group=sites.filter(x=>x.date>=q.from&&x.date<=q.to);
+   const group=sites.filter(x=>q.from?(x.date>=q.from&&x.date<=q.to):!trimesterForDate(x.date));
    group.forEach(x=>assigned.add(x));
    return `<section style="margin:22px 0"><h3 style="padding-bottom:9px;border-bottom:2px solid #d7e4da">${q.name} <small style="font-weight:400">(${group.length})</small></h3>${group.length?group.map(renderSite).join(''):'<p class="muted">Aucun chantier pour cette période.</p>'}</section>`;
   }).join('');
@@ -3222,7 +3215,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
    list.append(block);
   }else{
    const sorted=evaluations().slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-   const groups=[{id:1,label:'Trimestre 1 · Septembre à novembre'},{id:2,label:'Trimestre 2 · Décembre à février'},{id:3,label:'Trimestre 3 · Mars au 15 juin'},{id:0,label:'Hors trimestres'}];
+   const groups=[1,2,3].map(t=>({id:t,label:'Trimestre '+t+' · '+gmnfFormatTrimesterPeriod(t)})).concat([{id:0,label:'Hors trimestres'}]);
    for(const group of groups){
     const entries=sorted.filter(ev=>trimesterForDate(ev.date)===group.id);
     if(!entries.length&&group.id===0)continue;
@@ -3337,7 +3330,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
    const title=form.querySelector('#evTitle').value.trim(),subject=form.querySelector('#evSubject').value.trim(),date=form.querySelector('#evDate').value,max=Number(form.querySelector('#evMax').value),coef=Number(form.querySelector('#evCoef').value);
    if(!title||!subject||(!classSubjects(cls).includes(subject)&&!(existing&&subject===gmnfSubjectName(existing.subject)))||!date||!(max>0&&max<=100)||!(coef>0&&coef<=100)){alert('Complétez correctement tous les champs.');return}
    if(date<schoolStart()||date>schoolEnd()){alert('La date doit appartenir à l’année scolaire sélectionnée.');return}
-   if(!trimesterForDate(date)){alert('Cette date est hors des trois trimestres définis (1er septembre au 15 juin).');return}
+   if(!trimesterForDate(date)){alert('Cette date est hors des trimestres configurés dans Réglages pour cette année scolaire.');return}
    if(existing){
     const outOfRange=db.grades.some(g=>String(g.evaluationId)===String(existing.id)&&Number(g.score)>max);
     if(outOfRange){alert('Certaines notes existantes dépassent le nouveau barème. Modifiez-les avant de réduire la note maximale.');return}

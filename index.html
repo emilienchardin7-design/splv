@@ -919,6 +919,10 @@ function gmnfMaterialPdf(m){
  if(!todays.length)y=row('Dernière utilisation',last?dateFR(last.site.date):'Non renseignée',y);
  const next=m.nextControlDate||m.nextInspection||m.nextCheckDate||m.controlDate;
  y=row('Prochain contrôle à programmer',next?dateFR(next):'À programmer',y);
+ y=row('Contrôle trimestriel',vgpStatus(m),y);
+ y=row('Dernier contrôle',vgpDateFR(vgpLast(m)?.date),y);
+ y=row('Prochaine échéance',vgpDateFR(vgpNext(m)),y);
+ if(y>250){d.addPage();y=18}
  y=heading('3 · HISTORIQUE DES ENTRETIENS ET RÉPARATIONS',y+2);
  const hist=(m.maintenance||[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
  const refs=hist.map((r,i)=>r.type==='Réparation'?'A'+(hist.slice(0,i+1).filter(x=>x.type==='Réparation').length):'');
@@ -3526,14 +3530,53 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
  'Remorque':['Humbaur','Eduard','Saris','Lider','Trigano']
  };
  const states=['Fonctionnel','À contrôler','En entretien','En réparation','Hors service'];
+ const vgpToday=()=>new Date().toLocaleDateString('sv-SE');
+ const vgpDateFR=x=>x?new Date(x+'T12:00:00').toLocaleDateString('fr-FR'):'—';
+ const vgpPlus3=x=>{const d=new Date((x||vgpToday())+'T12:00:00');const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+3);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));return d.toLocaleDateString('sv-SE')};
+ const vgpChecks=m=>{
+  const c=String(m.category||'').toLowerCase();
+  const base=['Identification, étiquette et numéro d’inventaire lisibles','Absence de fissures, déformations, corrosion dangereuse et pièces desserrées','État des poignées, fixations, carters et protections','Propreté, entretien et absence de fuite ou détérioration visible'];
+  if(/débroussailleuse|taille-haie|tronçonneuse|élagueuse|souffleur|tarière|motoculteur|tondeuse|broyeur|fendeuse|rogneuse/.test(c))return [...base,'Commande d’arrêt et dispositifs de sécurité fonctionnels','État du système de démarrage, carburant et échappement (si thermique)','État des câbles, batteries et connexions (si électrique)','État de l’organe de coupe / travail, affûtage, fixation et absence de jeu','Contrôle des vibrations, bruits anormaux et fonctionnement à vide en sécurité',...(/tronçonneuse|élagueuse/.test(c)?['Frein de chaîne, guide, chaîne, tension et lubrification']:[]),...(/tondeuse|broyeur/.test(c)?['Dispositifs d’interverrouillage et arrêt des lames / rotor']:[])];
+  if(/échelle|escabeau/.test(c))return [...base,'Montants, marches, barreaux et assemblages intacts','Patins antidérapants et dispositifs de blocage en état','Stabilité et absence de déformation'];
+  if(/harnais|longe|corde|élingue|treuil|tire-fort/.test(c))return [...base,'Sangles, cordes ou câbles sans coupure, usure ou brûlure','Coutures, connecteurs, mousquetons et verrouillages en état','Marquages, traçabilité et date de retrait / péremption vérifiés','Absence d’indice de chute ou de surcharge','Vérification par une personne compétente selon les règles applicables'];
+  if(/casque|visière|lunettes|auditive|gants|pantalon anti|chaussures|gilet/.test(c))return [...base,'Coque, textile, coutures et attaches sans dommage','Ajustement, maintien et éléments de protection efficaces','Date limite, marquage et notice vérifiés si applicables'];
+  if(/minibus|4x4|véhicule|remorque/.test(c))return [...base,'Pneumatiques, roues et fixations','Éclairage, signalisation et visibilité','Freinage, attelage et dispositifs de sécurité','Contrôle des fluides et fuites','Documents et contrôles réglementaires à jour'];
+  if(/groupe électrogène|motopompe|nettoyeur|pulvérisateur/.test(c))return [...base,'Tuyaux, raccords, réservoirs et étanchéité','Commandes et arrêt d’urgence si présents','Alimentation électrique, mise à la terre et câbles si présents','Essai de fonctionnement sans anomalie'];
+  if(/perceuse|meuleuse|scie circulaire|scie sabre|sécateur électrique|batterie/.test(c))return [...base,'Câbles, prises, batterie et chargeur sans dommage','Interrupteur, verrouillage et arrêt fonctionnels','Accessoires et organes mobiles fixés et protégés','Essai de fonctionnement sans bruit ou échauffement anormal'];
+  if(/extincteur/.test(c))return [...base,'Goupille, scellé, pression et accessibilité','Étiquette et contrôle par prestataire habilité à jour'];
+  return [...base,'État de la partie active, de l’assemblage et des fixations','Utilisation possible sans risque apparent selon la notice'];
+ };
+ const vgpHistory=m=>Array.isArray(m.vgpHistory)?m.vgpHistory:[];
+ const vgpLast=m=>vgpHistory(m).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))[0]||null;
+ const vgpNext=m=>vgpPlus3(vgpLast(m)?.date||m.acquired||vgpToday());
+ const vgpStatus=m=>{const last=vgpLast(m);if(last?.status==='refused')return 'REFUSÉE — matériel à retirer du service';if(!last)return 'À réaliser';return vgpNext(m)<vgpToday()?'ÉCHUE':'VALIDÉE';};
+ const vgpPdf=(m,record=null)=>{const PDF=window.jspdf?.jsPDF;if(!PDF){alert('Module PDF indisponible');return}const d=new PDF({unit:'mm',format:'a4'}),checks=vgpChecks(m),margin=14;let y=15;
+  d.setFillColor(27,82,53);d.rect(0,0,210,27,'F');d.setFont('helvetica','bold');d.setTextColor(255,255,255);d.setFontSize(15);d.text('FICHE DE CONTRÔLE TRIMESTRIEL',margin,12);d.setFont('helvetica','normal');d.setFontSize(8);d.text('GMNF SPLV · Contrôle interne de sécurité (ne remplace pas les vérifications réglementaires)',margin,19);
+  d.setTextColor(32,49,39);d.setFontSize(9);y=36;const line=(a,b)=>{d.setFont('helvetica','bold');d.text(a,margin,y);d.setFont('helvetica','normal');d.text(String(b||'—'),margin+43,y);y+=7};line('Matériel',m.name||m.category);line('Catégorie',m.category);line('Marque',m.brand);line('N° inventaire',m.inventoryId);line('Date du contrôle',record?.date?vgpDateFR(record.date):'____ / ____ / ______');line('Prochaine échéance',record?.date?vgpDateFR(vgpPlus3(record.date)):vgpDateFR(vgpNext(m)));
+  y+=3;d.setFillColor(231,241,234);d.rect(margin,y,182,9,'F');d.setFont('helvetica','bold');d.text('POINTS DE CONTRÔLE',margin+3,y+6);d.text('C',159,y+6);d.text('NC',171,y+6);d.text('NA',184,y+6);y+=9;
+  checks.forEach((c,i)=>{d.setFont('helvetica','normal');d.setFontSize(8);const lines=d.splitTextToSize((i+1)+'. '+c,135),h=Math.max(9,lines.length*4+3);if(y+h>240){d.addPage();y=17}d.setDrawColor(210,221,214);d.rect(margin,y,182,h);d.text(lines,margin+3,y+5);['ok','bad','na'].forEach((v,j)=>{const x=159+j*12;d.rect(x,y+2,5,5);if(record?.answers?.[i]===v)d.text('X',x+1,y+6)});y+=h});
+  if(y>245){d.addPage();y=18}y+=8;d.setFontSize(9);d.setFont('helvetica','bold');d.text('Décision :',margin,y);d.setFont('helvetica','normal');d.text(record?(record.status==='valid'?'VALIDÉE':'REFUSÉE'):'[  ] VALIDÉE     [  ] REFUSÉE',margin+30,y);y+=8;d.text('Observations : '+(record?.notes||'________________________________________________________'),margin,y);y+=9;d.text('Contrôleur : '+(record?.controller||'_________________________________'),margin,y);y+=9;d.text('Signature : __________________________________',margin,y);d.setFontSize(7);d.setTextColor(110);d.text('Contrôle interne à périodicité de 3 mois. Vérifier séparément les obligations réglementaires selon le matériel.',margin,285);
+  d.save('controle-trimestriel-'+String(m.inventoryId||m.name||'materiel').replace(/[^a-z0-9_-]/gi,'-')+'.pdf');
+ };
  let view='inventory',editId=null;
  const root=card('<h3>Parc matériel</h3><div id="materialTabs" class="notes-tabs" role="tablist" aria-label="Rubriques du matériel"></div><div id="materialBody"></div>');
  const data=()=>db.materials||[];
  const button=(text,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=fn;return b};
  const show=()=>{
   const nav=root.querySelector('#materialTabs');nav.innerHTML='';
-  [['inventory','Inventaire'],['maintenance','Entretien / réparations'],['assignments','Affectation aux chantiers']].forEach(([id,label])=>{const b=button(label,()=>{view=id;editId=null;show()});b.classList.toggle('active',view===id);b.setAttribute('role','tab');b.setAttribute('aria-selected',String(view===id));nav.append(b)});
+  [['inventory','Inventaire'],['maintenance','Entretien / réparations'],['assignments','Affectation aux chantiers'],['vgp','Contrôles trimestriels']].forEach(([id,label])=>{const b=button(label,()=>{view=id;editId=null;show()});b.classList.toggle('active',view===id);b.setAttribute('role','tab');b.setAttribute('aria-selected',String(view===id));nav.append(b)});
   const body=root.querySelector('#materialBody');body.innerHTML='';
+  if(view==='vgp'){
+   const intro=document.createElement('p');intro.className='muted';intro.textContent='Contrôle interne tous les 3 mois pour chaque matériel. Ce suivi ne remplace pas une VGP réglementaire, dont la périodicité et les qualifications dépendent du type d’équipement.';body.append(intro);
+   const tbl=document.createElement('table');tbl.className='students-table';tbl.innerHTML='<thead><tr><th>Matériel</th><th>Dernier contrôle</th><th>Prochaine échéance</th><th>Résultat</th><th>Actions</th></tr></thead>';const tb=document.createElement('tbody');tbl.append(tb);body.append(tbl);
+   data().slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'fr')).forEach(m=>{const tr=document.createElement('tr');const last=vgpLast(m);[m.name+' · '+(m.inventoryId||'sans n°'),vgpDateFR(last?.date),vgpDateFR(vgpNext(m)),vgpStatus(m)].forEach((v,i)=>{const td=document.createElement('td');td.textContent=v;if(i===3&&(/REFUSÉE|ÉCHUE/.test(v)))td.style.color='#ad3030';tr.append(td)});const td=document.createElement('td');td.append(button('Fiche A4 PDF',()=>vgpPdf(m,last)),button('Réaliser le contrôle',()=>{
+    const modal=document.createElement('div');modal.style.cssText='border:1px solid #b6cbb9;border-radius:12px;padding:16px;margin:12px 0;background:#f7faf8';const h=document.createElement('h3');h.textContent='Contrôle trimestriel · '+m.name;modal.append(h);
+    const date=document.createElement('input');date.type='date';date.value=vgpToday();const dl=document.createElement('label');dl.textContent='Date du contrôle : ';dl.append(date);modal.append(dl);
+    const checks=vgpChecks(m),selects=[];checks.forEach((label,i)=>{const row=document.createElement('div');row.style.cssText='display:flex;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid #d8e3da;padding:8px 0';const span=document.createElement('span');span.textContent=(i+1)+'. '+label;span.style.flex='1';const sel=document.createElement('select');[['','À vérifier'],['ok','Conforme'],['bad','Non conforme'],['na','Sans objet']].forEach(([v,t])=>sel.add(new Option(t,v)));row.append(span,sel);modal.append(row);selects.push(sel)});
+    const controller=document.createElement('input');controller.placeholder='Nom du contrôleur';controller.style.width='100%';modal.append(controller);const notes=document.createElement('textarea');notes.placeholder='Observations, anomalies et mesures correctives';notes.style.width='100%';modal.append(notes);
+    const actions=document.createElement('div');actions.style.cssText='display:flex;gap:10px;flex-wrap:wrap';actions.append(button('Enregistrer le contrôle',()=>{if(!date.value||!controller.value.trim()||selects.some(x=>!x.value)){alert('Renseigne la date, le contrôleur et tous les points de contrôle.');return}const answers=selects.map(x=>x.value),status=answers.includes('bad')?'refused':'valid';if(!Array.isArray(m.vgpHistory))m.vgpHistory=[];const record={id:Date.now().toString(36),date:date.value,controller:controller.value.trim(),notes:notes.value.trim(),answers,status};m.vgpHistory.push(record);if(status==='refused')m.state='Hors service';save();vgpPdf(m,record);show()}),button('Annuler',()=>modal.remove()));modal.append(actions);body.prepend(modal);
+   }));tr.append(td);tb.append(tr)});return;
+  }
   if(view==='inventory'){
    const top=document.createElement('div');top.style.cssText='display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px';
    const compactAction=(label,action)=>{const b=button(label,action);b.style.cssText='padding:5px 10px;font-size:12px;line-height:1.25;min-height:0;width:auto;flex:0 0 auto;border-radius:6px';return b};

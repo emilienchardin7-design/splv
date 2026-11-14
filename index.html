@@ -1718,10 +1718,12 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
  db.weeklyPlanTeachers ||= {};
  const teachersByClass=db.weeklyPlanTeachers[cls] ||= {};
  const teacherAssignments=(db.classDetails?.[cls]?.teachers||[]);
+ db.weeklyPlanCustomTeachers ||= {};
+ const customTeacherMap=db.weeklyPlanCustomTeachers[cls] ||= {};
  const registryTeachers=(typeof teachersRegistry!=='undefined'?teachersRegistry:[]);
  const teacherChoicesFor=name=>{
   const norm=v=>String(v||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  return [...new Map(teacherAssignments.filter(t=>norm(t.subject)===norm(name)).map(t=>{
+  return [...new Map(teacherAssignments.filter(t=>norm(t.subject)===norm(name)||(Array.isArray(customTeacherMap[name])&&customTeacherMap[name].includes(String(t.teacherId||([t.firstName,t.lastName].filter(Boolean).join(' ')||t.name||''))))).map(t=>{
    const r=registryTeachers.find(x=>String(x.id)===String(t.teacherId||''));
    const label=r?[r.firstName,r.lastName].filter(Boolean).join(' '):([t.firstName,t.lastName].filter(Boolean).join(' ')||t.name||'');
    return [String(t.teacherId||label),{id:String(t.teacherId||label),label}];
@@ -1834,7 +1836,22 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
    }).filter(Boolean);
    return [...new Set(names)].join(' · ');
   };
-  const rows=slots.map(min=>[hh(min),...dayNames.map((_,di)=>{const name=records[week]?.[di]?.[hh(min)]||'';const teacher=name?selectedTeacherNames(name,di,hh(min)):'';return name+(teacher?'\n'+teacher:'')})]);
+  // Cellules PDF fusionnées verticalement pour les cours consécutifs ayant les mêmes enseignants.
+  const pdfCells=slots.map(min=>[hh(min),...dayNames.map((_,di)=>{
+   const key=hh(min),name=records[week]?.[di]?.[key]||'';
+   return {name,teachers:name?selectedTeacherNames(name,di,key):'',key};
+  })]);
+  const pdfMerge=Array.from({length:slots.length},()=>Array(5).fill(null));
+  for(let di=0;di<5;di++)for(let i=0;i<slots.length;){
+   const cell=pdfCells[i][di+1];if(!cell.name){i++;continue}
+   let length=1;
+   while(i+length<slots.length&&pdfCells[i+length][di+1].name===cell.name&&pdfCells[i+length][di+1].teachers===cell.teachers)length++;
+   pdfMerge[i][di]={...cell,length};i+=length;
+  }
+  const rows=slots.map((min,i)=>[hh(min),...dayNames.map((_,di)=>{
+   const cell=pdfMerge[i][di];
+   return cell?{content:cell.name+(cell.teachers?'\n'+cell.teachers:''),rowSpan:cell.length,styles:{valign:'middle'}}:pdfCells[i][di+1].name?'':{content:''};
+  })]);
   // Même palette HSL que les cases de l'emploi du temps affiché sur le site.
   const hslToRgb=(h,s,l)=>{
    s/=100;l/=100;
@@ -1866,34 +1883,49 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     pageBreak:'avoid',rowPageBreak:'avoid',
     didParseCell:data=>{
      if(data.section!=='body'||data.column.index===0)return;
-     const name=String(rows[data.row.index]?.[data.column.index]||'').split('\n')[0];
-     if(!name)return;
+     const full=String(data.cell.raw?.content||data.cell.raw||'');
+     const name=full.split('\n')[0];if(!name)return;
      const colors=pdfSubjectColors(name);
      data.cell.styles.fillColor=colors.background;
      data.cell.styles.textColor=colors.text;
      data.cell.styles.fontStyle='normal';
-     data.cell.styles.minCellHeight=15;
+     data.cell.styles.valign='middle';
      data.cell.text=[''];
     },
     didDrawCell:data=>{
      if(data.section!=='body'||data.column.index===0)return;
-     const full=String(rows[data.row.index]?.[data.column.index]||'');
-     if(!full)return;
+     const full=String(data.cell.raw?.content||data.cell.raw||'');if(!full)return;
      const parts=full.split('\n'),subject=parts.shift()||'',teachers=parts.join(' ');
      const colors=pdfSubjectColors(subject);
-     const x=data.cell.x+2,y=data.cell.y+4.5,maxWidth=data.cell.width-4;
-     doc.setTextColor(...colors.text);
+     const x=data.cell.x+2,maxWidth=data.cell.width-4;
      doc.setFont('helvetica','bold');doc.setFontSize(7.1);
      const subjectLines=doc.splitTextToSize(subject,maxWidth).slice(0,2);
+     doc.setFont('helvetica','normal');doc.setFontSize(6.5);
+     const teacherLines=teachers?doc.splitTextToSize(teachers,maxWidth).slice(0,2):[];
+     const total=subjectLines.length*3+teacherLines.length*2.8;
+     let y=data.cell.y+Math.max(4,(data.cell.height-total)/2+2.5);
+     doc.setTextColor(...colors.text);
+     doc.setFont('helvetica','bold');doc.setFontSize(7.1);
      subjectLines.forEach((line,i)=>doc.text(line,x,y+i*3));
-     if(teachers){doc.setFont('helvetica','normal');doc.setFontSize(6.5);const teacherLines=doc.splitTextToSize(teachers,maxWidth).slice(0,2);teacherLines.forEach((line,i)=>doc.text(line,x,y+subjectLines.length*3+i*2.8));}
-     doc.setFont('helvetica','normal');
+     y+=subjectLines.length*3;
+     doc.setFont('helvetica','normal');doc.setFontSize(6.5);
+     teacherLines.forEach((line,i)=>doc.text(line,x,y+i*2.8));
     }
    });
   }else{rows.forEach((r,i)=>doc.text(r.join(' | ').slice(0,130),13,68+i*7))}
   doc.save('planning-'+cls.replace(/[^a-z0-9]+/gi,'-')+'-'+week+'.pdf');
  };
- b.querySelector('[data-addsubject]').onclick=()=>{const raw=prompt('Nom de la nouvelle matière ou activité (ex. : Rentrée, Suivi stage) :');if(raw===null)return;const name=raw.trim().replace(/\s+/g,' ');if(!name)return;if(name.length>90){alert('Le nom est trop long (90 caractères maximum).');return}if(subjects.some(x=>x.name.toLowerCase()===name.toLowerCase())){alert('Cette matière existe déjà.');return}customSubjects.push(name);subjects.push({name,hoursPremiere:0,hoursTerminale:0,specialPlanning:true});save();redraw()};
+ b.querySelector('[data-addsubject]').onclick=()=>{const raw=prompt('Nom de la nouvelle matière ou activité (ex. : Rentrée, Suivi stage) :');if(raw===null)return;const name=raw.trim().replace(/\s+/g,' ');if(!name)return;if(name.length>90){alert('Le nom est trop long (90 caractères maximum).');return}if(subjects.some(x=>x.name.toLowerCase()===name.toLowerCase())){alert('Cette matière existe déjà.');return}const available=[...new Map(teacherAssignments.map(t=>{const r=registryTeachers.find(x=>String(x.id)===String(t.teacherId||''));const label=r?[r.firstName,r.lastName].filter(Boolean).join(' '):([t.firstName,t.lastName].filter(Boolean).join(' ')||t.name||'');const id=String(t.teacherId||label);return [id,{id,label}]}).filter(([id,t])=>id&&t.label)) .values()];
+ const layer=document.createElement('div');layer.style.cssText='position:fixed;inset:0;z-index:999999;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px';
+ const panel=document.createElement('div');panel.style.cssText='background:var(--card,#fff);color:var(--text,#243a2c);border-radius:16px;padding:22px;width:min(440px,95vw);max-height:85vh;overflow:auto;box-shadow:0 15px 40px #0004';
+ const title=document.createElement('h3');title.textContent='Professeurs associés à « '+name+' »';panel.append(title);
+ const note=document.createElement('p');note.textContent='Sélectionne un ou plusieurs professeurs de la classe (facultatif).';panel.append(note);
+ const boxes=available.map(t=>{const label=document.createElement('label');label.style.cssText='display:flex;align-items:center;gap:10px;padding:8px';const check=document.createElement('input');check.type='checkbox';check.value=t.id;label.append(check,document.createTextNode(t.label));panel.append(label);return check});
+ if(!available.length){const info=document.createElement('p');info.textContent='Aucun professeur renseigné dans l’équipe pédagogique de cette classe.';panel.append(info)}
+ const actions=document.createElement('div');actions.style.cssText='display:flex;gap:8px;justify-content:flex-end;margin-top:16px';
+ const cancel=document.createElement('button');cancel.textContent='Annuler';cancel.onclick=()=>layer.remove();
+ const ok=document.createElement('button');ok.textContent='Créer la matière';ok.onclick=()=>{customSubjects.push(name);customTeacherMap[name]=boxes.filter(c=>c.checked).map(c=>c.value);subjects.push({name,hoursPremiere:0,hoursTerminale:0,specialPlanning:true});layer.remove();save();redraw()};
+ actions.append(cancel,ok);panel.append(actions);layer.append(panel);layer.onclick=e=>{if(e.target===layer)layer.remove()};document.body.append(layer)};
  b.querySelector('[data-clearweek]').onclick=()=>{if(!records[week]||!Object.values(records[week]).some(day=>Object.keys(day||{}).length))return;if(!confirm('Vider entièrement la semaine du '+weekDate(week,0)+' ? Tous les cours de cette semaine seront supprimés.'))return;delete records[week];delete teachersByClass[week];save();redraw()};
  b.querySelector('[data-prev]').onclick=()=>{week=weekShift(week,-1);redraw()};b.querySelector('[data-next]').onclick=()=>{week=weekShift(week,1);redraw()};weekInput.onchange=()=>{if(weekInput.value)week=mondayOf(weekInput.value);redraw()};
  b.querySelector('[data-copy]').onclick=()=>{const prev=records[weekShift(week,-1)];if(!prev){alert('Aucun planning sur la semaine précédente.');return}if(records[week]&&Object.values(records[week]).some(d=>Object.keys(d).length)&&!confirm('Remplacer le planning de cette semaine ?'))return;records[week]=JSON.parse(JSON.stringify(prev));const prevTeachers=teachersByClass[weekShift(week,-1)];if(prevTeachers)teachersByClass[week]=JSON.parse(JSON.stringify(prevTeachers));save();redraw()};

@@ -1773,7 +1773,18 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
   palette.innerHTML='';
   if(!subjects.length){palette.innerHTML='<p class="muted">Aucune matière configurée. Ajoute les matières et les volumes horaires dans Réglages → Base de données des filières.</p>'}
   const paletteColor=name=>{if(specialPlanningColors[name])return specialPlanningColors[name];const index=subjects.findIndex(x=>x.name===name);const hue=((index<0?0:index)*137.508+18)%360;return {background:`hsl(${hue} 68% 91%)`,border:`hsl(${hue} 48% 65%)`,text:`hsl(${hue} 55% 25%)`}};
-  subjects.forEach(sub=>{const annual=Number(sub[level])||0,used=yearTotal(sub.name),remaining=annual-used;const item=document.createElement('div');item.className='gmnf-plan-subject';const shade=paletteColor(sub.name);item.style.background=shade.background;item.style.borderColor=shade.border;item.style.color=shade.text;item.draggable=true;item.dataset.subject=sub.name;item.innerHTML='<strong>'+escPlan(sub.name)+'</strong>'+(sub.specialPlanning?'<small>Événement · sans volume horaire annuel</small>':'<small>'+used.toLocaleString('fr-FR')+' h placées / '+annual.toLocaleString('fr-FR')+' h · <b class="'+(remaining<0?'gmnf-plan-over':'')+'">'+remaining.toLocaleString('fr-FR')+' h restantes</b></small>');item.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',sub.name);e.dataTransfer.effectAllowed='copyMove'});palette.append(item)});
+  subjects.forEach(sub=>{const annual=Number(sub[level])||0,used=yearTotal(sub.name),remaining=annual-used;const item=document.createElement('div');item.className='gmnf-plan-subject';const shade=paletteColor(sub.name);item.style.background=shade.background;item.style.borderColor=shade.border;item.style.color=shade.text;item.draggable=true;item.dataset.subject=sub.name;item.innerHTML='<strong>'+escPlan(sub.name)+'</strong>'+(sub.specialPlanning?'<small>Événement · sans volume horaire annuel</small>':'<small>'+used.toLocaleString('fr-FR')+' h placées / '+annual.toLocaleString('fr-FR')+' h · <b class="'+(remaining<0?'gmnf-plan-over':'')+'">'+remaining.toLocaleString('fr-FR')+' h restantes</b></small>');if(customSubjects.includes(sub.name)){
+   const del=document.createElement('button');del.type='button';del.textContent='Supprimer';del.title='Supprimer cette matière personnalisée';
+   del.style.cssText='display:block;margin-top:7px;padding:4px 9px;font-size:11px';del.draggable=false;
+   del.addEventListener('mousedown',e=>e.stopPropagation());
+   del.onclick=e=>{e.preventDefault();e.stopPropagation();const count=yearTotal(sub.name);
+    if(!confirm('Supprimer la matière personnalisée « '+sub.name+' » ?'+(count?'\nAttention : '+count+' créneau(x) de cette matière seront aussi retirés des plannings de cette classe.':'')))return;
+    for(const [wk,days] of Object.entries(records))for(const [di,entries] of Object.entries(days||{}))for(const [time,val] of Object.entries(entries||{}))if(val===sub.name){delete entries[time];if(teachersByClass[wk]?.[di])delete teachersByClass[wk][di][time]}
+    customSubjects.splice(customSubjects.indexOf(sub.name),1);delete customTeacherMap[sub.name];
+    const index=subjects.findIndex(x=>x.name===sub.name);if(index>=0)subjects.splice(index,1);save();redraw();
+   };item.append(del)
+  }
+  item.addEventListener('dragstart',e=>{if(e.target.closest('button')){e.preventDefault();return}e.dataTransfer.setData('text/plain',sub.name);e.dataTransfer.effectAllowed='copyMove'});palette.append(item)});
   const table=document.createElement('table');table.className='gmnf-plan-table';table.innerHTML='<thead><tr><th>Heure</th>'+dayNames.map((d,i)=>'<th>'+d+'<small>'+weekDate(week,i)+'</small><button type="button" data-clearday="'+i+'" title="Vider cette journée" style="display:block;margin:5px auto 0;font-size:11px;padding:4px 7px;white-space:nowrap">Vider le jour</button></th>').join('')+'</tr></thead><tbody></tbody>';
   table.querySelectorAll('[data-clearday]').forEach(btn=>btn.addEventListener('click',()=>{const di=Number(btn.dataset.clearday);if(!records[week]?.[di]||!Object.keys(records[week][di]).length)return;if(!confirm('Supprimer tous les cours du '+dayNames[di].toLowerCase()+' '+weekDate(week,di)+' ?'))return;delete records[week][di];if(teachersByClass[week])delete teachersByClass[week][di];save();redraw()}));
   const body=table.querySelector('tbody');
@@ -1838,7 +1849,8 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
   };
   // Cellules PDF fusionnées verticalement pour les cours consécutifs ayant les mêmes enseignants.
   const pdfCells=slots.map(min=>[hh(min),...dayNames.map((_,di)=>{
-   const key=hh(min),name=records[week]?.[di]?.[key]||'';
+   const key=hh(min),raw=records[week]?.[di]?.[key];
+   const name=typeof raw==='string'?raw:(raw&&typeof raw==='object'?String(raw.name||raw.subject||raw.title||''):'');
    return {name,teachers:name?selectedTeacherNames(name,di,key):'',key};
   })]);
   const pdfMerge=Array.from({length:slots.length},()=>Array(5).fill(null));
@@ -1848,10 +1860,18 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
    while(i+length<slots.length&&pdfCells[i+length][di+1].name===cell.name&&pdfCells[i+length][di+1].teachers===cell.teachers)length++;
    pdfMerge[i][di]={...cell,length};i+=length;
   }
-  const rows=slots.map((min,i)=>[hh(min),...dayNames.map((_,di)=>{
-   const cell=pdfMerge[i][di];
-   return cell?{content:cell.name+(cell.teachers?'\n'+cell.teachers:''),rowSpan:cell.length,styles:{valign:'middle'}}:pdfCells[i][di+1].name?'':{content:''};
-  })]);
+  // Les cellules couvertes par rowSpan doivent être omises (pas remplacées par '').
+  const rows=slots.map((min,i)=>{
+   const row=[{content:hh(min)}];
+   for(let di=0;di<5;di++){
+    const cell=pdfMerge[i][di];
+    if(cell){row.push({content:cell.name+(cell.teachers?'\n'+cell.teachers:''),rowSpan:cell.length,styles:{valign:'middle'}});continue}
+    let covered=false;
+    for(let j=0;j<i;j++){const prior=pdfMerge[j][di];if(prior&&j+prior.length>i){covered=true;break}}
+    if(!covered)row.push({content:''});
+   }
+   return row;
+  });
   // Même palette HSL que les cases de l'emploi du temps affiché sur le site.
   const hslToRgb=(h,s,l)=>{
    s/=100;l/=100;
@@ -1883,7 +1903,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     pageBreak:'avoid',rowPageBreak:'avoid',
     didParseCell:data=>{
      if(data.section!=='body'||data.column.index===0)return;
-     const full=String(data.cell.raw?.content||data.cell.raw||'');
+     const full=typeof data.cell.raw?.content==='string'?data.cell.raw.content:(typeof data.cell.raw==='string'?data.cell.raw:'');
      const name=full.split('\n')[0];if(!name)return;
      const colors=pdfSubjectColors(name);
      data.cell.styles.fillColor=colors.background;
@@ -1894,7 +1914,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     },
     didDrawCell:data=>{
      if(data.section!=='body'||data.column.index===0)return;
-     const full=String(data.cell.raw?.content||data.cell.raw||'');if(!full)return;
+     const full=typeof data.cell.raw?.content==='string'?data.cell.raw.content:(typeof data.cell.raw==='string'?data.cell.raw:'');if(!full)return;
      const parts=full.split('\n'),subject=parts.shift()||'',teachers=parts.join(' ');
      const colors=pdfSubjectColors(subject);
      const x=data.cell.x+2,maxWidth=data.cell.width-4;

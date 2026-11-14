@@ -1759,7 +1759,7 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
  let week=mondayOf(new Date().toISOString().slice(0,10));
  const start=window.gmnfSchoolYear+'-09-01',end=(Number(window.gmnfSchoolYear)+1)+'-08-31';
  if(week<start||week>end)week=mondayOf(start);
- const b=card('<h3>Planning hebdomadaire · '+cls.replace(/</g,'&lt;')+'</h3><p class="muted">Glisse une matière sur une case de 1 heure. Clique sur un cours pour choisir ses professeurs ; clic droit pour supprimer le cours. Les heures sont comptabilisées sur toute l’année scolaire.</p><div class="gmnf-plan-controls"><button type="button" data-prev>← Semaine précédente</button><input type="date" data-week aria-label="Choisir une semaine"><button type="button" data-next>Semaine suivante →</button><button type="button" data-copy>Copier la semaine précédente</button><button type="button" data-planpdf>📄 Télécharger le planning PDF</button></div><div class="gmnf-plan-layout"><aside class="gmnf-plan-palette"><h4>Matières · heures annuelles</h4><div data-palette></div></aside><div class="gmnf-plan-scroll"><div data-grid></div></div></div>');
+ const b=card('<h3>Planning hebdomadaire · '+cls.replace(/</g,'&lt;')+'</h3><p class="muted">Glisse une matière sur une case de 1 heure. Clique sur un cours pour le modifier ou le supprimer. Les heures sont comptabilisées sur toute l’année scolaire.</p><div class="gmnf-plan-controls"><button type="button" data-prev>← Semaine précédente</button><input type="date" data-week aria-label="Choisir une semaine"><button type="button" data-next>Semaine suivante →</button><button type="button" data-copy>Copier la semaine précédente</button><button type="button" data-planpdf>📄 Télécharger le planning PDF</button></div><div class="gmnf-plan-layout"><aside class="gmnf-plan-palette"><h4>Matières · heures annuelles</h4><div data-palette></div></aside><div class="gmnf-plan-scroll"><div data-grid></div></div></div>');
  const palette=b.querySelector('[data-palette]'),grid=b.querySelector('[data-grid]'),weekInput=b.querySelector('[data-week]');
  weekInput.min=start;weekInput.max=end;
  const escPlan=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1778,10 +1778,11 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
    dayNames.forEach((day,di)=>{
     const key=hh(min),value=records[week]?.[di]?.[key];
     const previous=si?records[week]?.[di]?.[hh(slots[si-1])]:null;
-    if(value&&previous===value)return;
+    const sameTeachers=(a,b)=>JSON.stringify((teachersByClass[week]?.[di]?.[a]||[]).slice().sort())===JSON.stringify((teachersByClass[week]?.[di]?.[b]||[]).slice().sort());
+    if(value&&previous===value&&sameTeachers(hh(slots[si-1]),key))return;
     const td=document.createElement('td');td.className='gmnf-plan-cell';
     let length=1;
-    if(value){while(si+length<slots.length&&records[week]?.[di]?.[hh(slots[si+length])]===value)length++;
+    if(value){while(si+length<slots.length&&records[week]?.[di]?.[hh(slots[si+length])]===value&&sameTeachers(key,hh(slots[si+length])))length++;
      td.rowSpan=length;td.classList.add('filled');const c=subjectColor(value);td.style.background=c.background;td.style.borderColor=c.border;td.style.color=c.text;
      td.innerHTML='<span class="gmnf-plan-block-name">'+escPlan(value)+'</span><span class="gmnf-plan-block-duration">'+(length).toLocaleString('fr-FR')+' h · '+hh(min)+'–'+hh(min+length*60)+'</span>'+(selectedTeacherNames(value,di,key)?'<span class="gmnf-plan-block-teachers">'+escPlan(selectedTeacherNames(value,di,key))+'</span>':'');
      td.title='Cliquer pour retirer ce cours de '+(length).toLocaleString('fr-FR')+' h';
@@ -1793,8 +1794,15 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
      for(let k=0;k<length;k++)records[week][di][hh(min+k*60)]=name;
      assignTeachers(name,di,key,length,()=>{save();redraw()})});
     td.addEventListener('click',()=>{if(value){
-      const action=confirm('Modifier les professeurs de « '+value+' » ?\nOK : choisir les professeurs.\nAnnuler : conserver le cours.');
-      if(action)assignTeachers(value,di,key,length,()=>{save();redraw()});
+      const layer=document.createElement('div');layer.style.cssText='position:fixed;inset:0;z-index:999999;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px';
+      const panel=document.createElement('div');panel.style.cssText='background:var(--card,#fff);color:var(--text,#243a2c);border-radius:16px;padding:22px;width:min(430px,95vw);box-shadow:0 15px 45px #0004';
+      const heading=document.createElement('h3');heading.textContent=value+' · '+day+' '+key+' ('+length+' h)';panel.append(heading);
+      const hint=document.createElement('p');hint.textContent='Que souhaites-tu faire avec ce cours ?';panel.append(hint);
+      const actions=document.createElement('div');actions.style.cssText='display:flex;gap:9px;flex-wrap:wrap;margin-top:16px';
+      const addButton=(label,fn)=>{const btn=document.createElement('button');btn.type='button';btn.textContent=label;btn.onclick=fn;actions.append(btn)};
+      addButton('Modifier les professeurs',()=>{layer.remove();assignTeachers(value,di,key,length,()=>{save();redraw()})});
+      addButton('Supprimer le cours',()=>{if(!confirm('Supprimer ce cours de '+length+' h ?'))return;layer.remove();for(let k=0;k<length;k++){const slot=hh(min+k*60);delete records[week][di][slot];if(teachersByClass[week]?.[di])delete teachersByClass[week][di][slot]}save();redraw()});
+      addButton('Annuler',()=>layer.remove());panel.append(actions);layer.append(panel);layer.addEventListener('click',e=>{if(e.target===layer)layer.remove()});document.body.append(layer);
      }else{const name=prompt('Matière à placer :\n'+subjects.map(x=>x.name).join('\n'));if(!subjects.some(x=>x.name===name))return;records[week]||={};records[week][di]||={};records[week][di][key]=name;assignTeachers(name,di,key,1,()=>{save();redraw()})}});
     td.addEventListener('contextmenu',e=>{if(!value)return;e.preventDefault();if(confirm('Supprimer ce cours ?')){for(let k=0;k<length;k++){delete records[week][di][hh(min+k*60)];if(teachersByClass[week]?.[di])delete teachersByClass[week][di][hh(min+k*60)]}save();redraw()}});
     tr.append(td);

@@ -1895,9 +1895,9 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     head:[['Horaire',...dayNames.map((d,i)=>d+' '+weekDate(week,i))]],
     body:rows,theme:'grid',
     // Dix créneaux et leurs enseignants restent dans la hauteur utile de la page.
-    styles:{fontSize:7.1,cellPadding:{top:2,right:2,bottom:2,left:2},overflow:'linebreak',minCellHeight:12.5,lineColor:[20,20,20],lineWidth:0.45,textColor:[35,48,39],fillColor:[255,255,255]},
-    headStyles:{fillColor:[36,94,60],textColor:[255,255,255],lineColor:[15,15,15],lineWidth:0.55,minCellHeight:9,halign:'center',valign:'middle'},
-    columnStyles:{0:{cellWidth:22,fillColor:[243,246,243],fontStyle:'bold'},1:{cellWidth:49.8},2:{cellWidth:49.8},3:{cellWidth:49.8},4:{cellWidth:49.8},5:{cellWidth:49.8}},
+    styles:{fontSize:7.1,cellPadding:{top:2,right:2,bottom:2,left:2},overflow:'linebreak',minCellHeight:12.5,lineColor:[176,190,181],lineWidth:0.25,textColor:[35,48,39],fillColor:[255,255,255],halign:'center',valign:'middle'},
+    headStyles:{fillColor:[36,94,60],textColor:[255,255,255],lineColor:[36,94,60],lineWidth:0.35,minCellHeight:9,halign:'center',valign:'middle',fontStyle:'bold'},
+    columnStyles:{0:{cellWidth:22,fillColor:[243,246,243],fontStyle:'bold',halign:'center',valign:'middle'},1:{cellWidth:49.8},2:{cellWidth:49.8},3:{cellWidth:49.8},4:{cellWidth:49.8},5:{cellWidth:49.8}},
     tableWidth:271,
     margin:{left:13,right:13,top:49,bottom:7},
     pageBreak:'avoid',rowPageBreak:'avoid',
@@ -1917,22 +1917,31 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
      const full=typeof data.cell.raw?.content==='string'?data.cell.raw.content:(typeof data.cell.raw==='string'?data.cell.raw:'');if(!full)return;
      const parts=full.split('\n'),subject=parts.shift()||'',teachers=parts.join(' ');
      const colors=pdfSubjectColors(subject);
-     const x=data.cell.x+2,maxWidth=data.cell.width-4;
-     doc.setFont('helvetica','bold');doc.setFontSize(7.1);
-     const subjectLines=doc.splitTextToSize(subject,maxWidth).slice(0,2);
+     // Centrage horizontal ET vertical de l'ensemble matière + enseignant(s).
+     const centerX=data.cell.x+data.cell.width/2;
+     const maxWidth=data.cell.width-5;
+     doc.setFont('helvetica','bold');doc.setFontSize(7.2);
+     const subjectLines=doc.splitTextToSize(subject,maxWidth).slice(0,3);
      doc.setFont('helvetica','normal');doc.setFontSize(6.5);
-     const teacherLines=teachers?doc.splitTextToSize(teachers,maxWidth).slice(0,2):[];
-     const total=subjectLines.length*3+teacherLines.length*2.8;
-     let y=data.cell.y+Math.max(4,(data.cell.height-total)/2+2.5);
+     const teacherLines=teachers?doc.splitTextToSize(teachers,maxWidth).slice(0,3):[];
+     const subjectStep=3.1,teacherStep=2.85,between=teacherLines.length?1.3:0;
+     const blockHeight=subjectLines.length*subjectStep+between+teacherLines.length*teacherStep;
+     // Les coordonnées PDF correspondent à la ligne de base, pas au sommet du texte.
+     let y=data.cell.y+(data.cell.height-blockHeight)/2+subjectStep*0.78;
      doc.setTextColor(...colors.text);
-     doc.setFont('helvetica','bold');doc.setFontSize(7.1);
-     subjectLines.forEach((line,i)=>doc.text(line,x,y+i*3));
-     y+=subjectLines.length*3;
+     doc.setFont('helvetica','bold');doc.setFontSize(7.2);
+     subjectLines.forEach((line,i)=>doc.text(line,centerX,y+i*subjectStep,{align:'center'}));
+     y+=subjectLines.length*subjectStep+between;
      doc.setFont('helvetica','normal');doc.setFontSize(6.5);
-     teacherLines.forEach((line,i)=>doc.text(line,x,y+i*2.8));
+     teacherLines.forEach((line,i)=>doc.text(line,centerX,y+i*teacherStep,{align:'center'}));
     }
    });
   }else{rows.forEach((r,i)=>doc.text(r.join(' | ').slice(0,130),13,68+i*7))}
+  // Pied de page discret, séparé du planning.
+  doc.setDrawColor(211,222,214);doc.setLineWidth(0.25);doc.line(13,202,284,202);
+  doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(105,122,110);
+  doc.text('GMNF SPLV  |  Planning de la classe',13,206);
+  doc.text('Semaine '+weekDate(week,0)+' - '+weekDate(week,4),284,206,{align:'right'});
   doc.save('planning-'+cls.replace(/[^a-z0-9]+/gi,'-')+'-'+week+'.pdf');
  };
  b.querySelector('[data-addsubject]').onclick=()=>{const raw=prompt('Nom de la nouvelle matière ou activité (ex. : Rentrée, Suivi stage) :');if(raw===null)return;const name=raw.trim().replace(/\s+/g,' ');if(!name)return;if(name.length>90){alert('Le nom est trop long (90 caractères maximum).');return}if(subjects.some(x=>x.name.toLowerCase()===name.toLowerCase())){alert('Cette matière existe déjà.');return}const available=[...new Map(teacherAssignments.map(t=>{const r=registryTeachers.find(x=>String(x.id)===String(t.teacherId||''));const label=r?[r.firstName,r.lastName].filter(Boolean).join(' '):([t.firstName,t.lastName].filter(Boolean).join(' ')||t.name||'');const id=String(t.teacherId||label);return [id,{id,label}]}).filter(([id,t])=>id&&t.label)) .values()];

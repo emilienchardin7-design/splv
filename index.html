@@ -4196,4 +4196,53 @@ if(!install()){
  const timer=setInterval(()=>{if(install())clearInterval(timer)},250);
  setTimeout(()=>clearInterval(timer),30000);
 }
-})();</script></body></html>
+})();</script><style id="gmnf-experience-v2">
+:root{--gx-accent:#27724f;--gx-bg:#f2f6f0;--gx-panel:#fff;--gx-text:#193c2c;--gx-border:#d8e5da;--gx-shadow:0 12px 32px rgba(16,54,35,.10)}
+html{scroll-behavior:smooth}body{background:var(--gx-bg);color:var(--gx-text);transition:background-color .3s,color .3s}
+#workspace .card,#workspace .page-heading,#workspace table,#workspace .modal-content{transition:background-color .28s,color .28s,box-shadow .25s,transform .25s}
+#app.gx-entrance{animation:gxEnter .34s cubic-bezier(.2,.8,.2,1) both}
+@keyframes gxEnter{from{opacity:.18;transform:translateY(12px) scale(.995)}to{opacity:1;transform:translateY(0) scale(1)}}
+#workspace button{transition:background-color .18s,box-shadow .18s,transform .18s}#workspace button:active{transform:scale(.975)}
+#workspace button:focus-visible{outline:3px solid #59b98b;outline-offset:2px}
+.gx-toolbar{position:fixed;right:16px;bottom:16px;z-index:100030;display:flex;gap:8px;align-items:center}.gx-fab{border:1px solid var(--gx-border);border-radius:999px;background:var(--gx-panel);color:var(--gx-text);box-shadow:var(--gx-shadow);padding:11px 15px;cursor:pointer;font-weight:650}.gx-fab:hover{transform:translateY(-2px)}
+.gx-bell-dot{display:inline-block;background:#d76d32;color:white;border-radius:99px;font-size:11px;min-width:16px;line-height:16px;margin-left:5px;text-align:center}
+.gx-notifications{position:fixed;right:16px;bottom:76px;width:min(370px,calc(100vw - 32px));max-height:65vh;overflow:auto;z-index:100031;background:var(--gx-panel);color:var(--gx-text);border:1px solid var(--gx-border);border-radius:18px;box-shadow:0 20px 60px #0003;padding:18px;box-sizing:border-box}.gx-notifications[hidden]{display:none}.gx-notifications h3{margin:0 0 12px}.gx-notifications ul{margin:0;padding-left:20px}.gx-notifications li{padding:7px 0;border-bottom:1px solid var(--gx-border)}
+.gx-toast-stack{position:fixed;top:18px;right:18px;z-index:100060;display:grid;gap:8px;pointer-events:none}.gx-toast{background:#173c2d;color:white;padding:12px 17px;border-radius:12px;box-shadow:0 12px 32px #0003;animation:gxEnter .25s both;max-width:340px}
+html[data-gx-theme="dark"]{color-scheme:dark;--gx-bg:#101c19;--gx-panel:#1a2b25;--gx-text:#e8f4ed;--gx-border:#385346;--gx-shadow:0 12px 32px #0005}
+html[data-gx-theme="dark"] body,html[data-gx-theme="dark"] #workspace,html[data-gx-theme="dark"] #app,html[data-gx-theme="dark"] #workspace main{background:var(--gx-bg)!important;color:var(--gx-text)!important}
+html[data-gx-theme="dark"] #workspace .card,html[data-gx-theme="dark"] #workspace table,html[data-gx-theme="dark"] #workspace td,html[data-gx-theme="dark"] #workspace th,html[data-gx-theme="dark"] #workspace .page-heading,html[data-gx-theme="dark"] #workspace input,html[data-gx-theme="dark"] #workspace select,html[data-gx-theme="dark"] #workspace textarea,html[data-gx-theme="dark"] #workspace button:not(.active):not(.selected),html[data-gx-theme="dark"] #workspace .modal-content{background:var(--gx-panel)!important;color:var(--gx-text)!important;border-color:var(--gx-border)!important}
+html[data-gx-theme="dark"] #workspace .card *,html[data-gx-theme="dark"] #workspace .page-heading *{color:inherit}
+@media(max-width:780px){#workspace{max-width:100vw;overflow-x:hidden}#workspace .sidebar{max-width:100vw}#workspace main{min-width:0!important;width:auto!important;max-width:100%!important;padding:12px!important}#workspace .card{max-width:100%;box-sizing:border-box;overflow-x:auto}#workspace table{display:block;overflow-x:auto;max-width:100%}.gx-toolbar{right:10px;bottom:10px}.gx-fab{padding:10px 12px}}
+@media(prefers-reduced-motion:reduce){#app.gx-entrance,.gx-toast{animation:none!important}*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+</style>
+<script id="gmnf-experience-v2-js">
+(function(){'use strict';
+const THEME_KEY='gmnf:appearance:theme';
+function readTheme(){try{return localStorage.getItem(THEME_KEY)||'light'}catch(e){return 'light'}}
+function setTheme(value){document.documentElement.dataset.gxTheme=value;try{localStorage.setItem(THEME_KEY,value)}catch(e){};const b=document.getElementById('gx-theme');if(b)b.textContent=value==='dark'?'☀ Mode clair':'☾ Mode sombre'}
+setTheme(readTheme());
+function init(){if(document.getElementById('gx-toolbar'))return;
+const toolbar=document.createElement('div');toolbar.id='gx-toolbar';toolbar.className='gx-toolbar';toolbar.innerHTML='<button type="button" class="gx-fab" id="gx-theme" aria-label="Changer de thème"></button><button type="button" class="gx-fab" id="gx-bell" aria-label="Notifications">♧ Notifications <span class="gx-bell-dot" id="gx-count" hidden></span></button>';
+const panel=document.createElement('section');panel.id='gx-notifications';panel.className='gx-notifications';panel.hidden=true;panel.setAttribute('aria-label','Centre de notifications');panel.innerHTML='<h3>Notifications et rappels</h3><div id="gx-notification-items"></div>';
+const stack=document.createElement('div');stack.id='gx-toast-stack';stack.className='gx-toast-stack';stack.setAttribute('aria-live','polite');document.body.append(toolbar,panel,stack);
+setTheme(readTheme());document.getElementById('gx-theme').onclick=()=>{setTheme(document.documentElement.dataset.gxTheme==='dark'?'light':'dark');notify('Préférence d’affichage enregistrée')};
+document.getElementById('gx-bell').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden)refreshNotifications()};
+const app=document.getElementById('app');if(app){new MutationObserver(()=>{app.classList.remove('gx-entrance');void app.offsetWidth;app.classList.add('gx-entrance');if(!panel.hidden)refreshNotifications()}).observe(app,{childList:true});}
+}
+function notify(msg){const stack=document.getElementById('gx-toast-stack');if(!stack)return;const el=document.createElement('div');el.className='gx-toast';el.textContent=msg;stack.append(el);setTimeout(()=>el.remove(),3200)}
+window.gmnfNotify=notify;
+function refreshNotifications(){const holder=document.getElementById('gx-notification-items'),count=document.getElementById('gx-count');if(!holder)return;
+const entries=[];const today=new Date();today.setHours(0,0,0,0);
+try{const data=typeof db!=='undefined'?db:null;if(data){
+const visit=(obj,depth=0)=>{if(depth>5||!obj||typeof obj!=='object')return;if(Array.isArray(obj)){obj.slice(0,400).forEach(x=>visit(x,depth+1));return}const label=String(obj.title||obj.titre||obj.name||obj.nom||obj.label||'').trim();
+const keys=Object.keys(obj);const dueKey=keys.find(k=>/^(nextVgp|vgpNext|prochaineVgp|nextVgpDate|vgpDueDate)$/i.test(k));if(dueKey&&label){const d=new Date(obj[dueKey]);if(!isNaN(d)&&d<=new Date(today.getTime()+30*86400000))entries.push({kind:'VGP',label,date:d});}
+if(depth<5)keys.forEach(k=>{if(/^(photos|image|signature|pdf|content|html|base64)$/i.test(k))return;const v=obj[k];if(v&&typeof v==='object')visit(v,depth+1)});
+};visit(data);
+}}
+catch(e){console.warn('Notifications GMNF',e)}
+const unique=[...new Map(entries.map(e=>[e.kind+e.label+e.date.toISOString(),e])).values()].slice(0,30);
+holder.replaceChildren();if(!unique.length){const p=document.createElement('p');p.textContent='Aucune échéance VGP automatiquement détectée. Les chantiers et interventions restent consultables dans leurs rubriques respectives.';holder.append(p)}else{const ul=document.createElement('ul');unique.forEach(e=>{const li=document.createElement('li');li.textContent=e.kind+' · '+e.label+' — '+e.date.toLocaleDateString('fr-FR');ul.append(li)});holder.append(ul)}count.hidden=!unique.length;count.textContent=unique.length||'';
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})();
+</script></body></html>

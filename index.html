@@ -3593,6 +3593,15 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     signCanvas.addEventListener('pointerdown',e=>{e.preventDefault();drawing=true;signCanvas.setPointerCapture(e.pointerId);const p=coords(e);signCtx.beginPath();signCtx.moveTo(p.x,p.y);signCtx.lineTo(p.x+.1,p.y+.1);signCtx.stroke();signed=true});
     signCanvas.addEventListener('pointermove',e=>{if(!drawing)return;e.preventDefault();const p=coords(e);signCtx.lineTo(p.x,p.y);signCtx.stroke()});
     for(const eventName of ['pointerup','pointercancel','lostpointercapture'])signCanvas.addEventListener(eventName,()=>drawing=false);
+    const defaultSignButton=button('Insérer la signature par défaut',()=>{
+      const savedSignature=localStorage.getItem(globalSettingsKeys.defaultSignature);
+      if(!savedSignature){alert('Aucune signature par défaut enregistrée. Ajoute-la dans Réglages → Signature par défaut.');return;}
+      const img=new Image();
+      img.onload=()=>{signCtx.clearRect(0,0,signCanvas.width,signCanvas.height);const scale=Math.min((signCanvas.width-36)/img.width,(signCanvas.height-24)/img.height);const w=img.width*scale,h=img.height*scale;signCtx.drawImage(img,(signCanvas.width-w)/2,(signCanvas.height-h)/2,w,h);signed=true;};
+      img.onerror=()=>alert('Impossible de charger la signature par défaut. Vérifie son image dans les réglages.');
+      img.src=savedSignature;
+    });
+    defaultSignButton.style.marginRight='8px';modal.append(defaultSignButton);
     modal.append(button('Effacer la signature',()=>{signCtx.clearRect(0,0,signCanvas.width,signCanvas.height);signed=false}));
     const actions=document.createElement('div');actions.style.cssText='display:flex;gap:10px;flex-wrap:wrap';actions.append(button('Enregistrer le contrôle',()=>{if(!date.value||!controller.value.trim()||selects.some(x=>!x.value)||!signed){alert('Renseigne la date, le contrôleur, tous les points de contrôle et la signature.');return}const answers=selects.map(x=>x.value),status=answers.includes('bad')?'refused':'valid';if(!Array.isArray(m.vgpHistory))m.vgpHistory=[];const record={id:Date.now().toString(36),date:date.value,controller:controller.value.trim(),notes:notes.value.trim(),answers,status,signature:signCanvas.toDataURL('image/png'),signedAt:new Date().toISOString()};m.vgpHistory.push(record);if(status==='refused')m.state='Hors service';save();vgpPdf(m,record);show()}),button('Annuler',()=>modal.remove()));modal.append(actions);body.prepend(modal);
    }));tr.append(td);tb.append(tr)});return;

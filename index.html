@@ -3722,26 +3722,214 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
     }),button('Annuler',()=>{editId=null;show()}));body.insertBefore(form,listing);
    }
   }else if(view==='maintenance'){
-   const info=document.createElement('p');info.className='muted';info.textContent='Signaler une panne ou un entretien à réaliser. Les contrôles périodiques sont suivis uniquement dans Suivi VGP depuis l’inventaire. Aucun seuil de 8 h ou 50 h n’est appliqué.';body.append(info);
-   const search=document.createElement('input');search.placeholder='Rechercher un équipement…';search.style.cssText='max-width:420px;width:100%;margin:8px 0 14px';body.append(search);
+   const items=data();
+   if(!items.length){body.innerHTML='<p class="muted">Ajoute d’abord un équipement dans l’inventaire.</p>';return}
+   const fmt=n=>Number(n.toFixed(2)).toLocaleString('fr-FR');
+   const total=m=>materialHoursAtDate(m,selectedDate);
+   const todayLocal=()=>new Date().toLocaleDateString('sv-SE');
+   let selectedDate=todayLocal();
+   const dateNav=document.createElement('div');dateNav.style.cssText='display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:12px 0';
+   const dayShift=(days)=>{const [y,mo,d]=selectedDate.split('-').map(Number);const value=new Date(y,mo-1,d+days);selectedDate=[value.getFullYear(),String(value.getMonth()+1).padStart(2,'0'),String(value.getDate()).padStart(2,'0')].join('-');dateInput.value=selectedDate;renderGroup()};
+   const prevDay=button('← Jour précédent',()=>dayShift(-1));
+   const dateInput=document.createElement('input');dateInput.type='date';dateInput.value=selectedDate;dateInput.setAttribute('aria-label','Date de consultation du matériel');dateInput.addEventListener('change',()=>{if(dateInput.value){selectedDate=dateInput.value;renderGroup()}});
+   const nextDay=button('Jour suivant →',()=>dayShift(1));
+   const todayButton=button('Aujourd’hui',()=>{selectedDate=todayLocal();dateInput.value=selectedDate;renderGroup()});
+   const dateInfo=document.createElement('p');dateInfo.className='muted';dateInfo.style.cssText='margin:4px 0 12px';
+   dateNav.append(prevDay,dateInput,nextDay,todayButton);body.append(dateNav,dateInfo);
+   const searchWrap=document.createElement('div');searchWrap.style.cssText='margin:12px 0;max-width:460px';
+   const searchInput=document.createElement('input');searchInput.type='search';searchInput.placeholder='Rechercher un matériel (nom, catégorie, marque, numéro…)';searchInput.setAttribute('aria-label','Rechercher dans les entretiens et réparations');searchInput.style.cssText='width:100%;padding:10px 12px;border:1px solid #b9cfc0;border-radius:8px';searchWrap.append(searchInput);body.append(searchWrap);
+   const normalizeSearch=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr').trim();
+   const tabs=document.createElement('div');tabs.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin:14px 0';body.append(tabs);
    const results=document.createElement('div');body.append(results);
-   const render=()=>{results.replaceChildren();data().filter(m=>[m.name,m.category,m.brand,m.inventoryId].join(' ').toLowerCase().includes(search.value.toLowerCase())).forEach(m=>{
-    const section=document.createElement('section');section.style.cssText='border:1px solid #d2e0d5;border-radius:10px;padding:14px;margin:10px 0';
-    const title=document.createElement('h4');title.textContent=(m.name||m.category)+' · N° '+(m.inventoryId||'—');section.append(title);
-    const status=document.createElement('p');status.textContent='État : '+(m.state||'—')+' · VGP : '+vgpStatus(m);section.append(status);
-    const btn=button('+ Signaler une panne / un entretien',()=>{
-      if(section.querySelector('.reportForm'))return;
-      const form=document.createElement('div');form.className='reportForm';form.style.cssText='display:grid;gap:9px;padding:12px;background:#f5faf6;border-radius:8px';
-      const type=document.createElement('select');[['Panne','Panne à réparer'],['Entretien','Entretien à réaliser']].forEach(([v,t])=>type.add(new Option(t,v)));form.append(type);
-      const date=document.createElement('input');date.type='date';date.value=vgpToday();form.append(date);
-      const description=document.createElement('textarea');description.placeholder='Description de la panne ou de l’entretien à réaliser';description.rows=3;form.append(description);
-      const saveBtn=button('Enregistrer le signalement',()=>{if(!date.value||!description.value.trim()){alert('Indique la date et la description.');return}m.maintenance=m.maintenance||[];const entry={id:'maint-'+Date.now(),type:type.value==='Panne'?'Réparation':'Entretien',date:date.value,description:description.value.trim(),workStatus:'pending',repairStatus:'pending',reported:true};m.maintenance.push(entry);if(type.value==='Panne'){m.needsRepair=true;m.repairResolved=false;m.state='Hors service'}else if(m.state==='Fonctionnel')m.state='Entretien à réaliser';save();render()});form.append(saveBtn,button('Annuler',()=>form.remove()));section.append(form)
-    });section.append(btn);
-    const history=(m.maintenance||[]).slice().reverse();if(history.length){const h=document.createElement('h5');h.textContent='Historique des signalements et interventions';section.append(h)}
-    history.forEach(entry=>{const line=document.createElement('div');line.style.cssText='border-top:1px solid #e1e9e3;padding:9px 0';const summary=document.createElement('span');summary.textContent=(entry.date||'—')+' · '+(entry.type||'Intervention')+' · '+(entry.description||'Sans description')+' · '+((entry.workStatus==='done'||entry.repairStatus==='done')?'Réalisé':'À traiter');line.append(summary);
-      if(entry.workStatus!=='done'&&entry.repairStatus!=='done'){const done=button('Marquer comme réalisé',()=>{entry.workStatus='done';entry.repairStatus='done';if(entry.type==='Réparation'){m.needsRepair=false;m.repairResolved=true}if(!(m.maintenance||[]).some(x=>x!==entry&&x.workStatus!=='done'&&x.repairStatus!=='done'))m.state='Fonctionnel';save();render()});done.style.marginLeft='10px';line.append(done)}section.append(line)});
-    results.append(section)
-   })};search.oninput=render;render();
+   const groups=[
+    ['ok','Matériel sans intervention signalée'],
+    ['minor','Entretiens à réaliser'],
+    ['repair','Outils à réparer']
+   ];
+    const classify=m=>{
+     const records=(m.maintenance||[]).filter(h=>!h.date||h.date<=selectedDate);
+     const repair=['En réparation','Hors service','En panne','Défectueux'].includes(materialAutomaticState(m,selectedDate)) || (m.needsRepair&&!m.repairResolved);
+     if(repair)return 'repair';
+     const latestRequest=records.filter(h=>h.isMaintenanceRequest).slice(-1)[0];
+     const latestDone=records.filter(h=>h.type==='Entretien'&&h.workStatus==='done'&&!h.isMaintenanceRequest).slice(-1)[0];
+     return latestRequest&&(!latestDone||String(latestDone.date||'')<String(latestRequest.date||''))?'minor':'ok';
+    };
+   let activeGroup='ok';
+   const counts=()=>Object.fromEntries(groups.map(([key])=>[key,items.filter(m=>classify(m)===key).length]));
+   const drawTabs=()=>{tabs.replaceChildren();const c=counts();groups.forEach(([key,label])=>{
+    const btn=button(label+' ('+c[key]+')',()=>{activeGroup=key;renderGroup()});
+    btn.style.cssText='font-size:12px;padding:7px 10px;'+(activeGroup===key?'outline:2px solid #386c4d;':'opacity:.8;');
+    tabs.append(btn);
+   })};
+   const renderGroup=()=>{
+    results.replaceChildren();drawTabs();dateInfo.textContent='Situation au '+new Date(selectedDate+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' — interventions déclarées et historique.';
+    const query=normalizeSearch(searchInput.value);
+    const visible=items.filter(m=>classify(m)===activeGroup&&(!query||normalizeSearch([m.name,m.category,m.brand,m.inventoryNumber,m.inventoryId,m.number,m.id].join(' ')).includes(query))).sort((x,y)=>String(x.name).localeCompare(String(y.name),'fr',{numeric:true,sensitivity:'base'}));
+    if(!visible.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='Aucun outil dans cette catégorie.';results.append(empty);return}
+    const wrap=document.createElement('div');wrap.style.overflowX='auto';
+    const table=document.createElement('table');table.className='students-table';
+    table.innerHTML='<thead><tr><th>Matériel</th><th>Catégorie</th><th>Marque</th><th>N° inventaire</th><th>État</th><th>Actions</th></tr></thead>';
+    const tbody=document.createElement('tbody');table.append(tbody);wrap.append(table);results.append(wrap);
+    visible.forEach(m=>{
+    const tr=document.createElement('tr');
+    [m.name,m.category,m.brand,m.inventoryId,materialAutomaticState(m,selectedDate)].forEach(value=>{const cell=document.createElement('td');cell.textContent=value??'—';tr.append(cell)});
+    const hoursCell=document.createElement('td');hoursCell.textContent=fmt(total(m))+' h';tr.append(hoursCell);
+    const actions=document.createElement('td');tr.append(actions);tbody.append(tr);
+    const detailRow=document.createElement('tr');detailRow.style.display='none';
+    const detailCell=document.createElement('td');detailCell.colSpan=6;detailRow.append(detailCell);tbody.append(detailRow);
+    const expand=button('Voir / gérer',()=>{const opening=detailRow.style.display==='none';detailRow.style.display=opening?'table-row':'none';expand.textContent=opening?'Fermer':'Voir / gérer'});
+    expand.style.cssText='font-size:12px;padding:5px 10px';actions.append(expand);
+     const section=document.createElement('section');section.style.cssText='border:1px solid #d7e4da;border-radius:12px;padding:14px;margin:12px 0';
+     const h=document.createElement('h4');h.textContent=m.name+' — '+(m.inventoryId||'sans référence');section.append(h);
+     const status=document.createElement('p');status.textContent=classify(m)==='repair'?'🔧 Réparation à réaliser':classify(m)==='minor'?'🟠 Entretien signalé à réaliser':'🟢 Aucune intervention en attente';section.append(status);
+    const form=document.createElement('div');form.style.cssText='display:none;border-top:1px solid #d7e4da;padding-top:12px;margin-top:12px';
+    const repairChoices={
+      'Débroussailleuse':['Remplacement tête de coupe / lame','Réparation lanceur','Réparation carburateur','Remplacement bougie','Réparation embrayage','Réparation arbre de transmission','Réparation réservoir / durite','Réparation poignée / commande','Réparation protection / carter'],
+      'Tronçonneuse':['Remplacement chaîne','Réparation guide-chaîne','Réparation frein de chaîne','Réparation lanceur','Réparation carburateur','Remplacement bougie','Réparation pompe à huile','Réparation embrayage','Réparation système anti-vibrations'],
+      'Taille-haie':['Réparation / remplacement lames','Réparation réducteur','Réparation embrayage','Réparation lanceur','Réparation carburateur','Réparation commande de sécurité'],
+      'Tondeuse':['Réparation lame / porte-lame','Réparation traction','Réparation démarreur','Réparation carburateur','Réparation courroie','Réparation roues / roulements','Réparation bac de ramassage'],
+      'Broyeur':['Déblocage / réparation rotor','Remplacement couteaux / marteaux','Réparation courroie','Réparation système d’alimentation','Réparation moteur'],
+      'Groupe électrogène':['Réparation démarrage','Réparation alternateur','Réparation régulation électrique','Réparation carburateur','Réparation prise / câblage'],
+      'Souffleur':['Réparation turbine','Réparation lanceur','Réparation carburateur','Réparation tube / poignée'],
+      'Véhicule':['Réparation freinage','Réparation pneumatiques','Réparation éclairage','Réparation batterie','Réparation transmission','Réparation moteur'],
+      'Remorque':['Réparation attelage','Réparation éclairage','Réparation roue / pneu','Réparation essieu / roulement','Réparation freinage'],
+      'Sécateur':['Réparation / remplacement lame','Réparation ressort','Réparation mécanisme de verrouillage','Réparation batterie / commande'],
+      'Outillage':['Remplacement manche','Réparation tête / lame','Réparation fixation','Affûtage / remise en état'],
+      'EPI':['Remplacement élément défectueux','Réparation fixation / réglage','Mise au rebut / remplacement'],
+      'GPS':['Réparation écran','Réparation alimentation / batterie','Réparation connectique','Réparation logiciel'],
+      'Pompe':['Réparation turbine','Réparation joints','Réparation moteur','Réparation tuyau / raccord']
+    };
+    const repairOptions=category=>{
+      const key=Object.keys(repairChoices).find(k=>String(category||'').toLocaleLowerCase('fr').includes(k.toLocaleLowerCase('fr')));
+      return [...(key?repairChoices[key]:['Réparation mécanique','Réparation électrique','Remplacement de pièce','Réparation structurelle']), 'Diagnostic de panne','Autre réparation (à préciser)'];
+    };
+    form.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end"><label>Type <select class="maintType"><option>Entretien</option><option>Réparation</option><option>Contrôle</option></select></label><label class="maintLevelWrap">Niveau <select class="maintLevel"><option value="minor">Courant</option><option value="major">Gros entretien</option></select></label><label class="maintWorkWrap">Avancement <select class="maintWorkStatus"><option value="done">Entretien terminé</option><option value="progress">Entretien en cours</option></select></label><label class="maintRepairWrap" style="display:none">Réparation envisagée <select class="maintRepairChoice"></select></label><label class="maintResultWrap" style="display:none">Résultat <select class="maintResult"><option value="done">Outil réparé</option><option value="progress">Réparation en cours</option><option value="failed">Réparation non réussie</option></select></label><label>Date <input class="maintDate" type="date"></label></div><label style="display:block;margin-top:10px">Description de l’intervention<textarea class="maintDescription" style="width:100%"></textarea></label><div class="maintPhotosWrap" style="display:none;margin:10px 0"><label>Photos de la panne <input class="maintBreakPhotos" type="file" accept="image/*" multiple></label><label style="display:block;margin-top:8px">Photos de la réparation <input class="maintFixPhotos" type="file" accept="image/*" multiple></label><small class="muted">Photos jusqu’à 50 Mo chacune (6 par rubrique), automatiquement redimensionnées et compressées pour économiser le stockage. Vous pouvez retirer une photo après enregistrement.</small></div>';
+    form.querySelectorAll('.maintBreakPhotos,.maintFixPhotos').forEach(input=>{const clear=button('Effacer la sélection',()=>{input.value='';});clear.type='button';clear.style.cssText='font-size:11px;margin-left:8px;padding:4px 8px';input.parentElement.append(clear)});
+    form.querySelector('.maintDate').value=selectedDate;
+    const typeField=form.querySelector('.maintType'),repairField=form.querySelector('.maintRepairChoice');
+    repairOptions(m.category).forEach(name=>{const option=document.createElement('option');option.value=name;option.textContent=name;repairField.append(option)});
+    const syncFields=()=>{const isRepair=typeField.value==='Réparation';form.querySelector('.maintLevelWrap').style.display=isRepair?'none':'';form.querySelector('.maintWorkWrap').style.display=isRepair?'none':'';form.querySelector('.maintRepairWrap').style.display=isRepair?'':'none';form.querySelector('.maintResultWrap').style.display=isRepair?'':'none';form.querySelector('.maintPhotosWrap').style.display=isRepair?'block':'none'};
+    typeField.addEventListener('change',syncFields);syncFields();
+    const readPhotos=async input=>{
+      const files=Array.from(input.files||[]);
+      if(files.length>6)throw Error('Maximum 6 photos par rubrique.');
+      return Promise.all(files.map(file=>new Promise((resolve,reject)=>{
+        if(!file.type.startsWith('image/')){reject(Error('Seules les images sont acceptées.'));return}
+        if(file.size>50*1024*1024){reject(Error('Chaque photo doit faire moins de 50 Mo.'));return}
+        const reader=new FileReader();reader.onload=()=>{
+          const picture=new Image();picture.onload=()=>{
+            try{const max=1400,ratio=Math.min(1,max/Math.max(picture.width,picture.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(picture.width*ratio));canvas.height=Math.max(1,Math.round(picture.height*ratio));canvas.getContext('2d').drawImage(picture,0,0,canvas.width,canvas.height);resolve({name:file.name,data:canvas.toDataURL('image/jpeg',0.76)});}catch(err){reject(Error('Impossible de compresser '+file.name))}
+          };picture.onerror=()=>reject(Error('Image non prise en charge : '+file.name));picture.src=reader.result;
+        };reader.onerror=()=>reject(Error('Impossible de lire '+file.name));reader.readAsDataURL(file);
+      })));
+    };
+    const validate=button('Valider l’intervention',async()=>{
+      const type=typeField.value,level=form.querySelector('.maintLevel').value,date=form.querySelector('.maintDate').value;
+      const description=form.querySelector('.maintDescription').value.trim(),repairStatus=form.querySelector('.maintResult').value,workStatus=form.querySelector('.maintWorkStatus').value;
+      if(!date){alert('Date requise.');return}
+      if(type==='Réparation'&&!description){alert('Décrivez la réparation ou les travaux tentés.');return}
+      try{
+        validate.disabled=true;
+        const breakdownPhotos=type==='Réparation'?await readPhotos(form.querySelector('.maintBreakPhotos')):[];
+        const repairPhotos=type==='Réparation'?await readPhotos(form.querySelector('.maintFixPhotos')):[];
+        m.maintenance=m.maintenance||[];
+        m.maintenance.push({id:'maint-'+Date.now()+'-'+Math.random(),type,level:type==='Réparation'?null:level,date,atHours:materialHoursAtDate(m,date),description,repairChoice:type==='Réparation'?repairField.value:null,repairStatus:type==='Réparation'?repairStatus:null,workStatus:type==='Entretien'?workStatus:null,breakdownPhotos,repairPhotos});
+        const previous={state:m.state,needsRepair:m.needsRepair,repairResolved:m.repairResolved};
+        if(type==='Réparation'){
+          const repaired=repairStatus==='done';
+          m.needsRepair=!repaired;m.repairResolved=repaired;
+          m.state=repaired?'Fonctionnel':repairStatus==='progress'?'En réparation':'Hors service';
+        }else if(type==='Entretien'){
+          m.state=m.needsRepair?'En réparation':(workStatus==='progress'?'En entretien':'Fonctionnel');
+        }
+        if(date>new Date().toLocaleDateString('sv-SE')){m.state=previous.state;m.needsRepair=previous.needsRepair;m.repairResolved=previous.repairResolved;}
+        try{save()}catch(error){m.maintenance.pop();Object.assign(m,previous);alert('Enregistrement impossible : espace de stockage local insuffisant. Réduisez la taille ou le nombre de photos.');return}
+        stateBeforeOpening=null;syncMaterialStates();renderGroup();
+      }catch(error){alert(error.message||'Impossible de lire les photos.')}finally{validate.disabled=false}
+    });
+    let stateBeforeOpening=null;
+    const beginIntervention=()=>{
+      const isRepair=classify(m)==='repair';
+      typeField.value=isRepair?'Réparation':'Entretien';syncFields();
+      stateBeforeOpening={state:m.state,needsRepair:m.needsRepair,repairResolved:m.repairResolved};
+      // L'ouverture du formulaire ne change pas l'état réel avant validation.
+      form.style.display='block';
+      // Rafraîchit immédiatement l'état affiché dans la liste sans fermer le formulaire.
+      const stateCell=tr.children[4];if(stateCell)stateCell.textContent=materialAutomaticState(m,selectedDate);
+    };
+    form.append(validate,button('Annuler',()=>{
+      if(stateBeforeOpening){Object.assign(m,stateBeforeOpening);save();stateBeforeOpening=null;}
+      form.style.display='none';const stateCell=tr.children[4];if(stateCell)stateCell.textContent=m.state;
+    }));
+    const isRepairGroup=classify(m)==='repair';
+    typeField.value=isRepairGroup?'Réparation':'Entretien';syncFields();
+    section.append(button(isRepairGroup?'Enregistrer une intervention de réparation':'Consigner un entretien',beginIntervention),form);
+    (m.maintenance||[]).slice().reverse().forEach(record=>{
+      const line=document.createElement('div');line.style.cssText='padding:8px 0;border-top:1px solid #e4ebe5';
+      const statusLabel={done:'Outil réparé',progress:'Réparation en cours',failed:'Réparation non réussie'};
+      const span=document.createElement('span');
+      span.textContent=[record.date,record.isRepairRequest?'Besoin de réparation déclaré':record.isMaintenanceRequest?'Besoin d’entretien déclaré':record.type==='Réparation'?'Intervention de réparation':record.type,record.type==='Réparation'?record.repairChoice:(record.level==='major'?'Gros entretien':record.level==='minor'?'Entretien courant':''),record.type==='Réparation'?statusLabel[record.repairStatus]:record.type==='Entretien'?(record.workStatus==='progress'?'Entretien en cours':'Entretien terminé'):null,record.atHours!==undefined?fmt(Number(record.atHours))+' h':'',record.description].filter(Boolean).join(' · ')+' ';
+      line.append(span);
+      const photos=[...(record.breakdownPhotos||[]).map(x=>({...x,kind:'Panne'})),...(record.repairPhotos||[]).map(x=>({...x,kind:'Réparation'}))];
+      if(photos.length){
+        const gallery=document.createElement('div');gallery.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin:8px 0';
+        photos.forEach(photo=>{const wrapper=document.createElement('div');wrapper.style.cssText='display:flex;flex-direction:column;align-items:center;gap:3px';const link=document.createElement('a');link.href=photo.data;link.target='_blank';link.rel='noopener noreferrer';link.title=photo.kind+' : '+photo.name;const img=document.createElement('img');img.src=photo.data;img.alt=photo.kind+' : '+photo.name;img.style.cssText='width:85px;height:70px;object-fit:cover;border-radius:6px';link.append(img);const remove=button('Retirer ✕',()=>{if(!confirm('Supprimer cette photo du constat ?'))return;const field=photo.kind==='Panne'?'breakdownPhotos':'repairPhotos';const arr=record[field]||[];const idx=arr.findIndex(x=>x.data===photo.data&&x.name===photo.name);if(idx<0)return;const removed=arr.splice(idx,1)[0];try{save();wrapper.remove()}catch(e){arr.splice(idx,0,removed);alert('Impossible d’enregistrer la suppression.')}});remove.style.cssText='font-size:10px;padding:3px 5px';wrapper.append(link,remove);gallery.append(wrapper)});
+        line.append(gallery);
+      }
+      line.append(button('Supprimer',()=>{
+        if(!confirm('Supprimer cette intervention ?'))return;
+        m.maintenance=m.maintenance.filter(x=>x.id!==record.id);
+        if(record.type==='Réparation'){
+          const latest=m.maintenance.filter(x=>x.type==='Réparation').slice(-1)[0];
+          const repaired=latest?.repairStatus==='done'||(latest&&!latest.repairStatus);
+          m.needsRepair=!repaired;m.repairResolved=!!repaired;m.state=repaired?'Fonctionnel':'En réparation';
+        }
+        save();renderGroup();
+      }));
+      section.append(line);
+    });
+    if(classify(m)!=='repair'){
+      const repairButton=button('Déclarer un besoin de réparation',()=>{
+        const date=new Date().toLocaleDateString('sv-SE');
+        const overlay=document.createElement('div');
+        overlay.style.cssText='position:fixed;inset:0;background:rgba(10,30,20,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px';
+        const panel=document.createElement('div');
+        panel.style.cssText='background:white;color:#20382b;border-radius:14px;padding:22px;width:min(560px,100%);max-height:90vh;overflow:auto;box-shadow:0 15px 55px #0004';
+        panel.innerHTML='<h3 style="margin:0 0 12px">Déclarer un besoin de réparation</h3><label style="display:block;margin-bottom:10px">Description de la panne<textarea class="panne-description" style="display:block;width:100%;min-height:100px;margin-top:6px" placeholder="Décrivez les anomalies constatées…"></textarea></label><label style="display:block">Photos de la panne (facultatif, 6 maximum)<input class="panne-photos" type="file" accept="image/*" multiple style="display:block;margin-top:6px;max-width:100%"></label><small style="display:block;margin:8px 0;color:#61756b">Jusqu’à 50 Mo par photo. Les images sont automatiquement compressées avant enregistrement.</small><div class="panne-preview" style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"></div><div class="panne-actions" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"></div>';
+        overlay.append(panel);document.body.append(overlay);
+        const input=panel.querySelector('.panne-photos'),preview=panel.querySelector('.panne-preview');
+        let selected=[];
+        const refresh=()=>{preview.innerHTML='';selected.forEach((file,index)=>{const tile=document.createElement('div');tile.style.cssText='width:108px;border:1px solid #ddd;border-radius:8px;padding:5px;text-align:center';const pic=document.createElement('img');pic.style.cssText='width:96px;height:75px;object-fit:cover;border-radius:4px';const url=URL.createObjectURL(file);pic.src=url;pic.onload=()=>URL.revokeObjectURL(url);const name=document.createElement('small');name.textContent=file.name;name.style.cssText='display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';const remove=button('Retirer ✕',()=>{selected.splice(index,1);refresh()});remove.type='button';remove.style.cssText='font-size:10px;padding:3px 6px;margin-top:4px';tile.append(pic,name,remove);preview.append(tile)})};
+        input.addEventListener('change',()=>{const added=Array.from(input.files||[]);if(selected.length+added.length>6){alert('Maximum 6 photos pour cette déclaration.');input.value='';return}for(const file of added){if(!file.type.startsWith('image/')){alert('Seules les images sont acceptées.');input.value='';return}if(file.size>50*1024*1024){alert('Chaque photo doit faire moins de 50 Mo.');input.value='';return}}selected.push(...added);input.value='';refresh()});
+        const close=()=>overlay.remove();
+        const actions=panel.querySelector('.panne-actions');
+        actions.append(button('Annuler',close));
+        const submit=button('Enregistrer la déclaration',async()=>{
+          const description=panel.querySelector('.panne-description').value.trim();
+          if(!description){alert('Veuillez décrire la panne avant de la signaler.');return}
+          submit.disabled=true;
+          try{
+            const breakdownPhotos=await Promise.all(selected.map(file=>new Promise((resolve,reject)=>{
+              const reader=new FileReader();reader.onerror=()=>reject(Error('Lecture impossible : '+file.name));
+              reader.onload=()=>{const img=new Image();img.onerror=()=>reject(Error('Image non prise en charge : '+file.name));img.onload=()=>{try{const ratio=Math.min(1,1400/Math.max(img.width,img.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.width*ratio));canvas.height=Math.max(1,Math.round(img.height*ratio));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);resolve({name:file.name,data:canvas.toDataURL('image/jpeg',.76)})}catch(err){reject(err)}};img.src=reader.result};reader.readAsDataURL(file)
+            })));
+            const before={state:m.state,needsRepair:m.needsRepair,repairResolved:m.repairResolved,initialState:m.initialState};
+            m.maintenance=m.maintenance||[];
+            const record={id:'maint-'+Date.now()+'-'+Math.random(),type:'Réparation',date,atHours:materialHoursAtDate(m,date),description,repairChoice:'Diagnostic de panne',repairStatus:'progress',isRepairRequest:true,breakdownPhotos,repairPhotos:[]};
+            m.maintenance.push(record);m.needsRepair=true;m.repairResolved=false;m.state='En réparation';
+            try{save()}catch(error){m.maintenance=m.maintenance.filter(r=>r.id!==record.id);Object.assign(m,before);alert('Enregistrement impossible : stockage local insuffisant. Essayez moins de photos.');return}
+            close();syncMaterialStates();renderGroup();
+          }catch(error){alert(error.message||'Impossible de traiter les photographies.')}finally{submit.disabled=false}
+        });
+        actions.append(submit);
+      });
+      section.append(repairButton);
+    }
+    detailCell.append(section);
+   });
+   };
+   searchInput.addEventListener('input',renderGroup);
+   renderGroup();
   }else{
    const sites=db.sites||[];if(!data().length||!sites.length){body.innerHTML='<p class="muted">Il faut au moins un équipement dans l’inventaire et un chantier créé dans l’onglet Chantiers.</p>';return}
    const form=document.createElement('div');form.style.cssText='display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:12px 0';

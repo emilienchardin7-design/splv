@@ -1086,6 +1086,8 @@ function render(){const headerTeacher=document.querySelector('#gmnf-header-teach
  };
  panel.querySelectorAll('[data-mailtab]').forEach(b=>b.onclick=()=>{section=b.dataset.mailtab;selected=null;activeFolder='';draw()});draw();
  }else if(tab==='Réglages'&&gmnfIsAdmin()){
+ const appearanceCard=card('<h3>Apparence et animations</h3><p class="muted">Choisissez votre mode d’affichage. La préférence est conservée sur cet appareil.</p><div class="gx-appearance-settings"><label for="gx-theme-select">Mode d’affichage</label><select id="gx-theme-select"><option value="light">Clair</option><option value="dark">Sombre</option></select></div>');
+ const themeSelect=appearanceCard.querySelector('#gx-theme-select');themeSelect.value=localStorage.getItem('gmnf:appearance:theme')==='dark'?'dark':'light';themeSelect.onchange=()=>{document.documentElement.dataset.gxTheme=themeSelect.value;localStorage.setItem('gmnf:appearance:theme',themeSelect.value);window.gmnfNotify?.('Mode '+(themeSelect.value==='dark'?'sombre':'clair')+' enregistré');};
  const settingsCard=card('<h3>Signature par défaut</h3><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><input type="file" accept="image/png,image/jpeg,image/webp" id="defaultSignatureFile"><button type="button" id="removeDefaultSignature" style="background:#fff1ed;color:#8b3028">Supprimer la signature</button></div><div id="defaultSignaturePreview" style="margin-top:16px;padding:15px;border:1px solid #c4d7c9;border-radius:10px;background:#fff;min-height:90px;display:flex;align-items:center;justify-content:center"></div><p class="muted" id="defaultSignatureStatus"></p>');
  const preview=settingsCard.querySelector('#defaultSignaturePreview'),status=settingsCard.querySelector('#defaultSignatureStatus');
  const refresh=()=>{const data=localStorage.getItem(globalSettingsKeys.defaultSignature);preview.replaceChildren();if(data){const img=document.createElement('img');img.src=data;img.alt='Signature par défaut';img.style.cssText='max-width:100%;max-height:160px;object-fit:contain';preview.append(img);status.textContent='Signature enregistrée sur cet appareil.'}else{preview.textContent='Aucune signature par défaut enregistrée.';status.textContent=''}};
@@ -4222,10 +4224,10 @@ function readTheme(){try{return localStorage.getItem(THEME_KEY)||'light'}catch(e
 function setTheme(value){document.documentElement.dataset.gxTheme=value;try{localStorage.setItem(THEME_KEY,value)}catch(e){};const b=document.getElementById('gx-theme');if(b)b.textContent=value==='dark'?'☀ Mode clair':'☾ Mode sombre'}
 setTheme(readTheme());
 function init(){if(document.getElementById('gx-toolbar'))return;
-const toolbar=document.createElement('div');toolbar.id='gx-toolbar';toolbar.className='gx-toolbar';toolbar.innerHTML='<button type="button" class="gx-fab" id="gx-theme" aria-label="Changer de thème"></button><button type="button" class="gx-fab" id="gx-bell" aria-label="Notifications">♧ Notifications <span class="gx-bell-dot" id="gx-count" hidden></span></button>';
+const toolbar=document.createElement('div');toolbar.id='gx-toolbar';toolbar.className='gx-toolbar';toolbar.innerHTML='<button type="button" class="gx-fab" id="gx-bell" aria-label="Notifications">♧ Notifications <span class="gx-bell-dot" id="gx-count" hidden></span></button>';
 const panel=document.createElement('section');panel.id='gx-notifications';panel.className='gx-notifications';panel.hidden=true;panel.setAttribute('aria-label','Centre de notifications');panel.innerHTML='<h3>Notifications et rappels</h3><div id="gx-notification-items"></div>';
 const stack=document.createElement('div');stack.id='gx-toast-stack';stack.className='gx-toast-stack';stack.setAttribute('aria-live','polite');document.body.append(toolbar,panel,stack);
-setTheme(readTheme());document.getElementById('gx-theme').onclick=()=>{setTheme(document.documentElement.dataset.gxTheme==='dark'?'light':'dark');notify('Préférence d’affichage enregistrée')};
+setTheme(readTheme());
 document.getElementById('gx-bell').onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden)refreshNotifications()};
 const app=document.getElementById('app');if(app){new MutationObserver(()=>{app.classList.remove('gx-entrance');void app.offsetWidth;app.classList.add('gx-entrance');if(!panel.hidden)refreshNotifications()}).observe(app,{childList:true});}
 }
@@ -4245,4 +4247,22 @@ holder.replaceChildren();if(!unique.length){const p=document.createElement('p');
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
-</script></body></html>
+</script>
+<style id="gmnf-experience-v3">
+/* Le réglage de thème est uniquement accessible dans Réglages. */
+#gx-theme{display:none!important}
+.gx-appearance-settings{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.gx-appearance-settings select{min-width:170px;padding:10px 12px;border-radius:10px;border:1px solid var(--gx-border);background:var(--gx-panel);color:var(--gx-text)}
+@keyframes gxPageReveal{from{opacity:0;transform:translate3d(0,19px,0);filter:blur(3px)}to{opacity:1;transform:translate3d(0,0,0);filter:blur(0)}}
+@keyframes gxCardReveal{from{opacity:0;transform:translate3d(0,14px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+#app.gx-entrance{animation:gxPageReveal .44s cubic-bezier(.2,.8,.2,1) both!important}
+#app.gx-entrance>.card,#app.gx-entrance>.class-subnav{animation:gxCardReveal .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:.09s}
+#app.gx-entrance>.card:nth-of-type(3){animation-delay:.14s}
+#app.gx-entrance>.card:nth-of-type(4){animation-delay:.19s}
+#app.gx-entrance>.card:nth-of-type(5){animation-delay:.24s}
+#app .card{transition:box-shadow .25s ease,transform .25s ease,background-color .25s ease}
+#app .card:hover{box-shadow:0 12px 32px rgba(20,65,42,.09)}
+#workspace [role="dialog"],#workspace .modal-content{animation:gxPageReveal .24s ease-out both}
+@media(prefers-reduced-motion:reduce){#app.gx-entrance,#app.gx-entrance>.card,#app.gx-entrance>.class-subnav,#workspace [role="dialog"],#workspace .modal-content{animation:none!important}}
+</style>
+</body></html>

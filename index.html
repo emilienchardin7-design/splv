@@ -920,9 +920,15 @@ function gmnfMaterialPdf(m){
  if(!todays.length)y=row('Dernière utilisation',last?dateFR(last.site.date):'Non renseignée',y);
  const next=m.nextControlDate||m.nextInspection||m.nextCheckDate||m.controlDate;
  y=row('Prochain contrôle à programmer',next?dateFR(next):'À programmer',y);
- y=row('Contrôle trimestriel',vgpStatus(m),y);
- y=row('Dernier contrôle',vgpDateFR(vgpLast(m)?.date),y);
- y=row('Prochaine échéance',vgpDateFR(vgpNext(m)),y);
+ // Le module VGP est isolé : la fiche matériel ne peut pas appeler ses variables locales.
+ const pdfVgpHistory=Array.isArray(m.vgpHistory)?m.vgpHistory:[];
+ const pdfVgpLast=pdfVgpHistory.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))[0]||null;
+ const pdfVgpDate=v=>{if(!v)return 'Non renseignée';const iso=String(v).slice(0,10);const parts=iso.split('-');return parts.length===3?parts.reverse().join('/'):String(v)};
+ const pdfVgpNext=()=>{const basis=String(pdfVgpLast?.date||m.acquired||todayISO).slice(0,10);const d=new Date(basis+'T12:00:00');if(Number.isNaN(d.getTime()))return null;d.setMonth(d.getMonth()+3);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+ const pdfVgpStatus=()=>{if(pdfVgpLast?.status==='refused')return 'REFUSÉE — matériel à retirer du service';if(!pdfVgpLast)return 'À réaliser';return pdfVgpNext()<todayISO?'ÉCHUE':'VALIDÉE'};
+ y=row('Contrôle trimestriel',pdfVgpStatus(),y);
+ y=row('Dernier contrôle',pdfVgpDate(pdfVgpLast?.date),y);
+ y=row('Prochaine échéance',pdfVgpDate(pdfVgpNext()),y);
  if(y>250){d.addPage();y=18}
  y=heading('3 · HISTORIQUE DES ENTRETIENS ET RÉPARATIONS',y+2);
  const hist=(m.maintenance||[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
@@ -1805,8 +1811,6 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
      td.rowSpan=length;td.classList.add('filled');const c=subjectColor(value);td.style.background=c.background;td.style.borderColor=c.border;td.style.color=c.text;
      td.innerHTML='<span class="gmnf-plan-block-name">'+escPlan(value)+'</span><span class="gmnf-plan-block-duration">'+(length).toLocaleString('fr-FR')+' h · '+hh(min)+'–'+hh(min+length*60)+'</span>'+(selectedTeacherNames(value,di,key)?'<span class="gmnf-plan-block-teachers">'+escPlan(selectedTeacherNames(value,di,key))+'</span>':'');
      td.title='Cliquer pour modifier ou supprimer ce cours de '+(length).toLocaleString('fr-FR')+' h';
-     const deleteBtn=document.createElement('button');deleteBtn.type='button';deleteBtn.textContent='✕';deleteBtn.title='Supprimer ce cours';deleteBtn.setAttribute('aria-label','Supprimer '+value+' '+day+' '+key);deleteBtn.style.cssText='float:right;position:relative;z-index:2;padding:1px 7px;border-radius:6px;border:1px solid #aeb8b1;background:#ffffffdb;color:#a12626;cursor:pointer';
-     deleteBtn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();if(!confirm('Supprimer '+value+' ('+length+' h) ?'))return;for(let k=0;k<length;k++){const slot=hh(min+k*60);delete records[week][di][slot];if(teachersByClass[week]?.[di])delete teachersByClass[week][di][slot]}save();redraw()});td.prepend(deleteBtn);
     }else td.textContent='+';
     td.addEventListener('dragover',e=>{e.preventDefault();td.classList.add('hover')});
     td.addEventListener('dragleave',()=>td.classList.remove('hover'));
@@ -1822,7 +1826,19 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
       const actions=document.createElement('div');actions.style.cssText='display:flex;gap:9px;flex-wrap:wrap;margin-top:16px';
       const addButton=(label,fn)=>{const btn=document.createElement('button');btn.type='button';btn.textContent=label;btn.onclick=fn;actions.append(btn)};
       addButton('Modifier les professeurs',()=>{layer.remove();assignTeachers(value,di,key,length,()=>{save();redraw()})});
-      addButton('Supprimer le cours',()=>{if(!confirm('Supprimer ce cours de '+length+' h ?'))return;layer.remove();for(let k=0;k<length;k++){const slot=hh(min+k*60);delete records[week][di][slot];if(teachersByClass[week]?.[di])delete teachersByClass[week][di][slot]}save();redraw()});
+      addButton('Supprimer le cours',()=>{
+       if(!confirm('Supprimer ce cours de '+length+' h ?'))return;
+       const activeWeek=week;
+       const activeDay=di;
+       const daySlots=db.weeklyPlans?.[cls]?.[activeWeek]?.[activeDay];
+       for(let k=0;k<length;k++){
+        const slot=hh(min+k*60);
+        if(daySlots)delete daySlots[slot];
+        if(records[activeWeek]?.[activeDay])delete records[activeWeek][activeDay][slot];
+        if(db.weeklyPlanTeachers?.[cls]?.[activeWeek]?.[activeDay])delete db.weeklyPlanTeachers[cls][activeWeek][activeDay][slot];
+       }
+       layer.remove();save();redraw();
+      });
       addButton('Annuler',()=>layer.remove());panel.append(actions);layer.append(panel);layer.addEventListener('click',e=>{if(e.target===layer)layer.remove()});document.body.append(layer);
      }else{const name=prompt('Matière à placer :\n'+subjects.map(x=>x.name).join('\n'));if(!subjects.some(x=>x.name===name))return;records[week]||={};records[week][di]||={};records[week][di][key]=name;assignTeachers(name,di,key,1,()=>{save();redraw()})}});
     td.addEventListener('contextmenu',e=>{if(!value)return;e.preventDefault();if(confirm('Supprimer ce cours ?')){for(let k=0;k<length;k++){delete records[week][di][hh(min+k*60)];if(teachersByClass[week]?.[di])delete teachersByClass[week][di][hh(min+k*60)]}save();redraw()}});

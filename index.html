@@ -908,9 +908,21 @@ function gmnfMaterialPdf(m){
  let y=43+(nameLines.length-1)*5;
  y=heading('1 · IDENTIFICATION DU MATÉRIEL',y+4);
  y=row('Catégorie',m.category,y);y=row('Marque',m.brand,y);y=row('Date d’acquisition',dateFR(m.acquired),y);y=row('Référence inventaire',m.inventoryId,y);
- const mainPhoto=m.photo||m.image||m.materialPhoto||m.photos?.[0];const platePhoto=m.platePhoto||m.inventoryPhoto||m.photos?.[1];
- photoBox('Photo du matériel',imgData(mainPhoto),M,y+1);photoBox('Plaque / numéro d’inventaire',imgData(platePhoto),M+94,y+1);y+=42;
- const thirdPhoto=m.photos?.[2];if(thirdPhoto){photoBox('Photo du matériel 2',imgData(thirdPhoto),M,y,86,25);y+=35;}
+ // Toutes les propriétés simples enregistrées, y compris les champs personnalisés.
+ const shownKeys=new Set(['category','brand','acquired','inventoryId','name','id','state','notes','observations','nextControlDate','nextInspection','nextCheckDate','controlDate']);
+ const propertyLabels={model:'Modèle',serialNumber:'N° de série',quantity:'Quantité',purchaseDate:'Date d’achat',location:'Emplacement',condition:'État',hours:'Compteur horaire',usageHours:'Heures d’utilisation',supplier:'Fournisseur',reference:'Référence',maintenanceType:'Type d’entretien'};
+ Object.entries(m).forEach(([key,value])=>{
+  if(shownKeys.has(key)||value==null||typeof value==='object'||typeof value==='function'||String(value).length>180||/photo|image|signature|base64|url|password|token/i.test(key))return;
+  if(y>258){d.addPage();y=18;y=heading('IDENTIFICATION · SUITE',y)}
+  y=row(propertyLabels[key]||key.replace(/([A-Z])/g,' $1'),value,y);
+ });
+ if(y>208){d.addPage();y=18;y=heading('PHOTOGRAPHIES DU MATÉRIEL',y)}
+ const materialPhotos=[m.photo,m.image,m.materialPhoto,m.platePhoto,m.inventoryPhoto,...(Array.isArray(m.photos)?m.photos:[])].map(imgData).filter(Boolean);
+ const distinctPhotos=[...new Set(materialPhotos)];
+ if(!distinctPhotos.length){text('Aucune photographie enregistrée',M+3,y+6,8,false,muted);y+=14}
+ else{for(let i=0;i<distinctPhotos.length;i+=2){if(y+52>266){d.addPage();y=18;y=heading('PHOTOGRAPHIES · SUITE',y)}photoBox('Photo '+(i+1),distinctPhotos[i],M,y,86,38);if(distinctPhotos[i+1])photoBox('Photo '+(i+2),distinctPhotos[i+1],M+94,y,86,38);y+=49}}
+ if(y>250){d.addPage();y=18}
+ if(y>250){d.addPage();y=18}
  y=heading('2 · ÉTAT ET UTILISATION',y);
  const sites=db.sites||[],ass=(m.assignments||[]).map(a=>({a,site:sites.find(site=>String(site.id)===String(a.siteId))})).filter(x=>x.site);
  const todays=ass.filter(x=>String(x.site.date||'').slice(0,10)===todayISO);
@@ -936,10 +948,21 @@ function gmnfMaterialPdf(m){
  const rows=hist.length?hist.map((r,i)=>[dateFR(r.date),(r.isRepairRequest?'Besoin de réparation déclaré':r.type==='Réparation'?'Intervention de réparation':str(r.type))+(r.level==='major'?' · Gros':r.level==='minor'?' · Courant':''),str(r.description||r.repairChoice||r.level).slice(0,150),refs[i]||'—']):[['—','Aucune intervention enregistrée','—','—']];
  d.autoTable({startY:y,head:[['Date','Type','Résumé de l’intervention','Annexe']],body:rows,theme:'grid',margin:{left:M,right:M,top:16,bottom:18},tableWidth:CW,styles:{fontSize:7.4,cellPadding:2.1,valign:'middle',overflow:'linebreak',textColor:ink},headStyles:{fillColor:green,textColor:[255,255,255],fontStyle:'bold'},columnStyles:{0:{cellWidth:24},1:{cellWidth:34},2:{cellWidth:104},3:{cellWidth:18,halign:'center'}},rowPageBreak:'avoid'});
  y=d.lastAutoTable.finalY+8;
+ // Historique complet des contrôles VGP.
+ if(y>249){d.addPage();y=18}
+ y=heading('4 · HISTORIQUE DES CONTRÔLES VGP',y);
+ const vgpRows=pdfVgpHistory.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(r=>[pdfVgpDate(r.date),r.status==='valid'?'Valide':r.status==='refused'?'Non valide':'Non renseigné',str(r.controller||'—'),str(r.notes||'—')]);
+ d.autoTable({startY:y,head:[['Date','Résultat','Contrôleur','Observations']],body:vgpRows.length?vgpRows:[['—','Aucune VGP enregistrée','—','—']],theme:'grid',margin:{left:M,right:M,top:16,bottom:18},tableWidth:CW,styles:{fontSize:7.5,cellPadding:2,overflow:'linebreak'},headStyles:{fillColor:green,textColor:[255,255,255]},columnStyles:{0:{cellWidth:28},1:{cellWidth:33},2:{cellWidth:43},3:{cellWidth:76}}});
+ y=d.lastAutoTable.finalY+8;
+ if(y>247){d.addPage();y=18}
+ y=heading('5 · HISTORIQUE DES CHANTIERS ATTRIBUÉS',y);
+ const siteRows=ass.slice().sort((a,b)=>String(b.site.date||'').localeCompare(String(a.site.date||''))).map(({a,site})=>[dateFR(site.date),str(site.title||site.name||'Chantier'),str(site.location||site.place||'—'),str(site.className||site.classId||a.className||'—')]);
+ d.autoTable({startY:y,head:[['Date','Chantier','Lieu','Classe']],body:siteRows.length?siteRows:[['—','Aucun chantier attribué','—','—']],theme:'grid',margin:{left:M,right:M,top:16,bottom:18},tableWidth:CW,styles:{fontSize:7.5,cellPadding:2,overflow:'linebreak'},headStyles:{fillColor:green,textColor:[255,255,255]},columnStyles:{0:{cellWidth:27},1:{cellWidth:65},2:{cellWidth:55},3:{cellWidth:33}}});
+ y=d.lastAutoTable.finalY+8;
  const observations=str(m.notes||m.observations||'Aucune observation particulière.');
  if(y>249){d.addPage();y=18}
- y=heading('4 · AUTRES OBSERVATIONS ET CONSIGNES',y);
- const lines=d.splitTextToSize(observations,CW-9);if(y+lines.length*4.5>272){d.addPage();y=18;y=heading('4 · AUTRES OBSERVATIONS ET CONSIGNES (SUITE)',y)}
+ y=heading('6 · AUTRES OBSERVATIONS ET CONSIGNES',y);
+ const lines=d.splitTextToSize(observations,CW-9);if(y+lines.length*4.5>272){d.addPage();y=18;y=heading('6 · AUTRES OBSERVATIONS ET CONSIGNES (SUITE)',y)}
  paragraph(observations,M+4,y,CW-9,8.6,4.6);
  const repairs=hist.map((r,i)=>({r,ref:refs[i]})).filter(x=>x.ref);
  if(repairs.length){
@@ -3650,7 +3673,19 @@ classes.forEach(c=>{let students=db.students.filter(s=>s.classe===c);let b=card(
  const vgpPdf=(m,record=null)=>{const PDF=window.jspdf?.jsPDF;if(!PDF){alert('Module PDF indisponible');return}const d=new PDF({unit:'mm',format:'a4'}),checks=vgpChecks(m),margin=14;let y=15;
   d.setFillColor(27,82,53);d.rect(0,0,210,27,'F');d.setFont('helvetica','bold');d.setTextColor(255,255,255);d.setFontSize(15);d.text('FICHE DE CONTRÔLE TRIMESTRIEL',margin,12);d.setFont('helvetica','normal');d.setFontSize(8);d.text('GMNF SPLV · Contrôle interne de sécurité (ne remplace pas les vérifications réglementaires)',margin,19);
   d.setTextColor(32,49,39);d.setFontSize(9);y=36;const line=(a,b)=>{d.setFont('helvetica','bold');d.text(a,margin,y);d.setFont('helvetica','normal');d.text(String(b||'—'),margin+43,y);y+=7};line('Matériel',m.name||m.category);line('Catégorie',m.category);line('Marque',m.brand);line('N° inventaire',m.inventoryId);line('Date du contrôle',record?.date?vgpDateFR(record.date):'____ / ____ / ______');line('Prochaine échéance',record?.date?vgpDateFR(vgpPlus3(record.date)):vgpDateFR(vgpNext(m)));
-  y+=3;d.setFillColor(231,241,234);d.rect(margin,y,182,9,'F');d.setFont('helvetica','bold');d.text('POINTS DE CONTRÔLE',margin+3,y+6);d.text('C',159,y+6);d.text('NC',171,y+6);d.text('NA',184,y+6);y+=9;
+  // Photos automatiquement reprises de la fiche inventaire, sans modifier le contrôle.
+  const photoSource=p=>typeof p==='string'?p:(p?.data||p?.url||p?.src||'');
+  const photoList=[m.photo,m.image,m.materialPhoto,m.platePhoto,m.inventoryPhoto,...(Array.isArray(m.photos)?m.photos:[])].map(photoSource).filter(p=>typeof p==='string'&&p.startsWith('data:image/'));
+  const uniquePhotos=[...new Set(photoList)];
+  if(uniquePhotos.length){
+   y+=2;d.setFont('helvetica','bold');d.setFontSize(8);d.text('PHOTOGRAPHIES DU MATÉRIEL',margin,y);y+=4;
+   for(let i=0;i<uniquePhotos.length;i+=2){
+    if(y+36>252){d.addPage();y=17}
+    for(let j=0;j<2&&i+j<uniquePhotos.length;j++){try{const src=uniquePhotos[i+j],props=d.getImageProperties(src),w=85,h=30,k=Math.min(w/props.width,h/props.height);d.addImage(src,props.fileType||'JPEG',margin+j*93+(w-props.width*k)/2,y+(h-props.height*k)/2,props.width*k,props.height*k)}catch(e){console.warn('Photo VGP ignorée',e)}}
+    y+=35;
+   }
+  }
+  y+=3;if(y+18>263){d.addPage();y=17}d.setFillColor(231,241,234);d.rect(margin,y,182,9,'F');d.setFont('helvetica','bold');d.text('POINTS DE CONTRÔLE',margin+3,y+6);d.text('C',159,y+6);d.text('NC',171,y+6);d.text('NA',184,y+6);y+=9;
   checks.forEach((c,i)=>{d.setFont('helvetica','normal');d.setFontSize(8);const lines=d.splitTextToSize((i+1)+'. '+c,135),h=Math.max(9,lines.length*4+3);if(y+h>240){d.addPage();y=17}d.setDrawColor(210,221,214);d.rect(margin,y,182,h);d.text(lines,margin+3,y+5);['ok','bad','na'].forEach((v,j)=>{const x=159+j*12;d.rect(x,y+2,5,5);if(record?.answers?.[i]===v)d.text('X',x+1,y+6)});y+=h});
   if(y>245){d.addPage();y=18}y+=8;d.setFontSize(9);d.setFont('helvetica','bold');d.text('Décision :',margin,y);d.setFont('helvetica','normal');d.text(record?(record.status==='valid'?'VALIDÉE':'REFUSÉE'):'[  ] VALIDÉE     [  ] REFUSÉE',margin+30,y);y+=8;d.text('Observations : '+(record?.notes||'________________________________________________________'),margin,y);y+=9;d.text('Contrôleur : '+(record?.controller||'_________________________________'),margin,y);y+=9;d.text('Signature du contrôleur :',margin,y);if(record?.signature){if(y>246){d.addPage();y=25}try{d.addImage(record.signature,'PNG',margin+55,y-6,65,20)}catch(err){console.warn('Signature VGP non intégrée',err)}}else{d.text('__________________________________',margin+55,y)}d.setFontSize(7);d.setTextColor(110);d.text('Contrôle interne à périodicité de 3 mois. Vérifier séparément les obligations réglementaires selon le matériel.',margin,285);
   d.save('controle-trimestriel-'+String(m.inventoryId||m.name||'materiel').replace(/[^a-z0-9_-]/gi,'-')+'.pdf');
